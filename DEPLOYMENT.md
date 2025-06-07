@@ -472,3 +472,207 @@ EOF
 
 2. **Encryption in Transit**
    - HTTPS/SSL for all connections
+   - VPN for internal communication
+
+## Troubleshooting Common Issues
+
+### Service Not Starting
+
+```bash
+# Check service status
+sudo systemctl status rag-streamlit
+sudo systemctl status rag-api
+
+# Check Docker containers
+docker-compose ps
+docker-compose logs chromadb
+
+# Check ports
+sudo netstat -tlnp | grep :8501
+sudo netstat -tlnp | grep :8001
+sudo netstat -tlnp | grep :8002
+```
+
+### Performance Issues
+
+```bash
+# Monitor resources
+htop
+df -h
+free -m
+
+# Check application logs
+tail -f logs/app.log
+docker-compose logs -f rag-app
+```
+
+### Network Issues
+
+```bash
+# Test connectivity
+curl -v http://localhost:8501
+curl -v http://localhost:8001
+curl -v http://localhost:8002/api/v1/heartbeat
+
+# Check firewall
+sudo ufw status
+sudo iptables -L
+```
+
+## Cost Optimization
+
+### AWS Cost Management
+
+1. **Instance Sizing**
+   - Start with t3.medium
+   - Monitor and adjust based on usage
+   - Use spot instances for development
+
+2. **Storage Optimization**
+   - Use gp3 volumes instead of gp2
+   - Implement S3 lifecycle policies
+   - Regular cleanup of old documents
+
+3. **Monitoring Costs**
+   ```bash
+   # Set up billing alerts
+   # Use AWS Cost Explorer
+   # Implement auto-shutdown for dev environments
+   ```
+
+## Maintenance
+
+### Regular Maintenance Tasks
+
+1. **Weekly**
+   ```bash
+   # Update system packages
+   sudo apt update && sudo apt upgrade
+   
+   # Backup databases
+   ./backup.sh
+   
+   # Check logs for errors
+   grep ERROR /var/log/syslog
+   ```
+
+2. **Monthly**
+   ```bash
+   # Update Docker images
+   docker-compose pull
+   docker-compose up -d
+   
+   # Clean up unused Docker resources
+   docker system prune -f
+   
+   # Review and rotate logs
+   sudo logrotate -f /etc/logrotate.conf
+   ```
+
+3. **Quarterly**
+   - Review and update Python dependencies
+   - Security audit and vulnerability scanning
+   - Performance testing and optimization
+   - Disaster recovery testing
+
+### Automated Maintenance
+
+Create maintenance scripts:
+
+```bash
+# /opt/rag-maintenance/daily.sh
+#!/bin/bash
+LOG_FILE="/var/log/rag-maintenance.log"
+
+echo "$(date): Starting daily maintenance" >> $LOG_FILE
+
+# Check service health
+systemctl is-active --quiet rag-streamlit || systemctl restart rag-streamlit
+systemctl is-active --quiet rag-api || systemctl restart rag-api
+
+# Check disk space
+DISK_USAGE=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
+if [ $DISK_USAGE -gt 80 ]; then
+    echo "$(date): WARNING: Disk usage is $DISK_USAGE%" >> $LOG_FILE
+fi
+
+# Backup ChromaDB
+/opt/rag-maintenance/backup.sh
+
+echo "$(date): Daily maintenance completed" >> $LOG_FILE
+```
+
+## Integration with CI/CD
+
+### GitHub Actions Deployment
+
+Create `.github/workflows/deploy.yml`:
+
+```yaml
+name: Deploy RAG System
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Deploy to server
+      uses: appleboy/ssh-action@v0.1.5
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.SSH_KEY }}
+        script: |
+          cd /home/ubuntu/rag-document-chat
+          git pull origin main
+          source rag_env/bin/activate
+          pip install -r requirements.txt
+          docker-compose restart chromadb
+          sudo systemctl restart rag-streamlit rag-api
+```
+
+### Automated Testing
+
+```yaml
+name: Test RAG System
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install pytest
+    
+    - name: Start ChromaDB
+      run: |
+        docker run -d --name chromadb -p 8002:8000 chromadb/chroma
+        sleep 10
+    
+    - name: Run tests
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      run: |
+        python test_setup.py
+        pytest tests/ -v
+```
+
+This completes the comprehensive deployment guide covering everything from local development to production scaling and maintenance.

@@ -115,22 +115,39 @@ class RAGSystem:
                 raise ValueError("OpenAI API key is required. Please set OPENAI_API_KEY environment variable.")
         else:
             raise ValueError("OpenAI API key is required. Please set OPENAI_API_KEY environment variable.")
-    
+
+
     def _init_chromadb(self) -> None:
-        """Initialize ChromaDB with connection retries"""
+        """Initialize ChromaDB with connection retries and v2 API support"""
         for attempt in range(3):
             try:
                 logger.info(f"🔄 Connecting to ChromaDB (attempt {attempt + 1}/3)...")
+                
+                # Try with v2 API settings
+                import chromadb.config
+                settings = chromadb.config.Settings(
+                    chroma_server_host=config.CHROMA_HOST,
+                    chroma_server_http_port=config.CHROMA_PORT,
+                    chroma_api_impl="chromadb.api.fastapi.FastAPI",
+                    chroma_server_ssl_enabled=False
+                )
+                
                 self.chroma_client = chromadb.HttpClient(
                     host=config.CHROMA_HOST, 
-                    port=config.CHROMA_PORT
+                    port=config.CHROMA_PORT,
+                    settings=settings
                 )
+                
+                # Test connection with v2 API
+                self.chroma_client.heartbeat()
+                
                 self.collection = self.chroma_client.get_or_create_collection(
                     name="documents",
                     metadata={"description": "RAG document collection"}
                 )
-                logger.info("✅ ChromaDB server connected")
+                logger.info("✅ ChromaDB server connected with v2 API")
                 return
+                
             except Exception as e:
                 logger.warning(f"❌ ChromaDB connection attempt {attempt + 1} failed: {e}")
                 if attempt < 2:
@@ -140,7 +157,8 @@ class RAGSystem:
         logger.info("⚠️ Using in-memory ChromaDB (data will not persist)")
         self.chroma_client = chromadb.Client()
         self.collection = self.chroma_client.get_or_create_collection("documents")
-    
+
+
     def extract_text(self, file_content: bytes, filename: str) -> str:
         """Extract text from uploaded files"""
         file_ext = Path(filename).suffix.lower()

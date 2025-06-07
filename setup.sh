@@ -45,9 +45,18 @@ echo "🐍 Step 2: Installing Python..."
 if ! command -v python3 &> /dev/null; then
     sudo apt install -y python3 python3-pip python3-venv python3-full
 else
-    PYTHON_VERSION=$(python3 --version | cut -d' ' -f2 | cut -d'.' -f1-2)
-    if (( $(echo "$PYTHON_VERSION < 3.9" | bc -l) )); then
+    PYTHON_VERSION=$(python3 --version | cut -d' ' -f2)
+    PYTHON_MAJOR=$(echo $PYTHON_VERSION | cut -d'.' -f1)
+    PYTHON_MINOR=$(echo $PYTHON_VERSION | cut -d'.' -f2)
+    
+    # Check if Python is 3.9 or higher
+    if [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -ge 9 ]; then
+        print_status "Python $PYTHON_VERSION is compatible"
+    elif [ "$PYTHON_MAJOR" -gt 3 ]; then
+        print_status "Python $PYTHON_VERSION is compatible"
+    else
         print_error "Python 3.9+ is required. Current version: $PYTHON_VERSION"
+        print_error "Please upgrade Python and try again."
         exit 1
     fi
 fi

@@ -1,0 +1,29 @@
+# RAG Document Chat System - Python Dependencies
+
+# Core web frameworks
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+streamlit==1.28.1
+
+# AI/ML libraries
+openai==1.84.0
+langchain==0.0.350
+chromadb==0.4.18
+
+# Document processing
+PyPDF2==3.0.1
+python-docx==0.8.11
+
+# Cloud services
+boto3==1.34.0
+botocore==1.34.0
+
+# HTTP and data handling
+requests==2.31.0
+python-multipart==0.0.6
+pydantic==2.11.5
+
+# Utilities
+python-dotenv==1.0.0
+typing-extensions==4.14.0
+tqdm==4.67.1

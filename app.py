@@ -116,26 +116,16 @@ class RAGSystem:
         else:
             raise ValueError("OpenAI API key is required. Please set OPENAI_API_KEY environment variable.")
 
-
     def _init_chromadb(self) -> None:
-        """Initialize ChromaDB with connection retries and v2 API support"""
+        """Initialize ChromaDB with connection retries"""
         for attempt in range(3):
             try:
                 logger.info(f"🔄 Connecting to ChromaDB (attempt {attempt + 1}/3)...")
                 
-                # Try with v2 API settings
-                import chromadb.config
-                settings = chromadb.config.Settings(
-                    chroma_server_host=config.CHROMA_HOST,
-                    chroma_server_http_port=config.CHROMA_PORT,
-                    chroma_api_impl="chromadb.api.fastapi.FastAPI",
-                    chroma_server_ssl_enabled=False
-                )
-                
+                # Simple HTTP client without any settings conflicts
                 self.chroma_client = chromadb.HttpClient(
                     host=config.CHROMA_HOST, 
-                    port=config.CHROMA_PORT,
-                    settings=settings
+                    port=config.CHROMA_PORT
                 )
                 
                 # Test connection with v2 API
@@ -145,7 +135,7 @@ class RAGSystem:
                     name="documents",
                     metadata={"description": "RAG document collection"}
                 )
-                logger.info("✅ ChromaDB server connected with v2 API")
+                logger.info("✅ ChromaDB server connected")
                 return
                 
             except Exception as e:

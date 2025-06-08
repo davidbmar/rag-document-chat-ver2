@@ -25,10 +25,27 @@ import PyPDF2
 import io
 
 import nltk
+import re
+# Download required NLTK data - Updated for NLTK 3.9.1
+try:
+    nltk.data.find('tokenizers/punkt_tab')
+except LookupError:
+    print("Downloading NLTK punkt_tab data...")
+    nltk.download('punkt_tab')
+
+# Also download punkt for backward compatibility
 try:
     nltk.data.find('tokenizers/punkt')
 except LookupError:
+    print("Downloading NLTK punkt data...")
     nltk.download('punkt')
+
+# Download stopwords if needed
+try:
+    nltk.data.find('corpora/stopwords')
+except LookupError:
+    print("Downloading NLTK stopwords...")
+    nltk.download('stopwords')
 
 # Configure logging
 logging.basicConfig(

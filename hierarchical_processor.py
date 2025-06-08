@@ -378,19 +378,18 @@ class HierarchicalProcessor:
     async def get_document_text(self, filename: str) -> Optional[str]:
         """Retrieve original document text from ChromaDB chunks"""
         try:
-            # Query all chunks for this document
-            results = self.rag_system.collection.query(
-                query_embeddings=None,
+            # Query all chunks for this document using get() instead of query()
+            results = self.rag_system.collection.get(
                 where={"filename": filename},
-                n_results=1000  # Get all chunks
+                limit=2000  # Get all chunks
             )
             
-            if not results['documents'][0]:
+            if not results['documents']:
                 return None
             
             # Combine all chunks back into original text
-            chunks = results['documents'][0]
-            metadatas = results['metadatas'][0]
+            chunks = results['documents']
+            metadatas = results['metadatas']
             
             # Sort by chunk index to maintain order
             chunk_data = [(chunk, meta.get('chunk_index', 0)) for chunk, meta in zip(chunks, metadatas)]

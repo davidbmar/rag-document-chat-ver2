@@ -328,14 +328,14 @@ class RAGSystem:
         except Exception as e:
             logger.error(f"Embedding generation failed: {e}")
             raise
-    
+
     async def process_document(self, file_content: bytes, filename: str) -> DocumentResponse:
         """Process uploaded document: extract text, chunk, embed, and store"""
         start_time = time.time()
         
         try:
             logger.info(f"📄 Processing document: {filename}")
-
+            
             # Extract text
             text = self.extract_text(file_content, filename)
             if not text.strip():
@@ -349,7 +349,7 @@ class RAGSystem:
             
             # Store original text for hierarchical processing
             self.store_original_text(text, filename)
-
+            
             # Upload to S3 if configured
             if self.s3_client:
                 try:
@@ -363,7 +363,7 @@ class RAGSystem:
                 except Exception as e:
                     logger.warning(f"⚠️ S3 upload failed: {e}")
             
-            # Chunk text
+            # Chunk text using LogicalTextSplitter
             chunks = self.text_splitter.split_text(text)
             if not chunks:
                 return DocumentResponse(
@@ -372,7 +372,7 @@ class RAGSystem:
                     processing_time=time.time() - start_time
                 )
             
-            logger.info(f"✂️ Created {len(chunks)} chunks")
+            logger.info(f"✂️ Created {len(chunks)} logical chunks")
             
             # Generate embeddings and store
             for i, chunk in enumerate(chunks):
@@ -388,7 +388,8 @@ class RAGSystem:
                             "filename": filename,
                             "chunk_index": i,
                             "total_chunks": len(chunks),
-                            "chunk_size": len(chunk)
+                            "chunk_size": len(chunk),
+                            "chunking_method": "logical"
                         }]
                     )
                 except Exception as e:
@@ -396,11 +397,11 @@ class RAGSystem:
                     continue
             
             processing_time = time.time() - start_time
-            logger.info(f"✅ Successfully processed {filename} in {processing_time:.2f}s")
+            logger.info(f"✅ Successfully processed {filename} in {processing_time:.2f}s using logical chunking")
             
             return DocumentResponse(
                 status="success",
-                message=f"Successfully processed {len(chunks)} chunks",
+                message=f"Successfully processed {len(chunks)} logical chunks",
                 chunks_created=len(chunks),
                 processing_time=processing_time
             )
@@ -491,35 +492,34 @@ class RAGSystem:
             return self.search_and_answer(query, top_k)
 
     def store_original_text(self, text: str, filename: str):
-        """Store original document text for later hierarchical processing"""
-        try:
-            # Create or get original text collection
-            text_collection = self.chroma_client.get_or_create_collection(
-                name="original_texts",
-                metadata={"description": "Original document texts for hierarchical processing"}
-            )
-            
-            # Store the full text
-            # Use a simple embedding of the filename for storage
-            simple_embedding = [0.0] * 1536  # Dummy embedding for storage
-            
-            text_collection.add(
-                ids=[f"fulltext_{filename}"],
-                embeddings=[simple_embedding],
-                documents=[text],
-                metadatas=[{
-                    "filename": filename,
-                    "content_type": "original_text",
-                    "character_count": len(text),
-                    "word_count": len(text.split())
-                }]
-            )
-            
-            logger.info(f"✅ Stored original text for {filename}")
-            
-        except Exception as e:
-            logger.error(f"Failed to store original text: {e}")
-
+            """Store original document text for later hierarchical processing"""
+            try:
+                # Create or get original text collection
+                text_collection = self.chroma_client.get_or_create_collection(
+                    name="original_texts",
+                    metadata={"description": "Original document texts for hierarchical processing"}
+                )
+                
+                # Store the full text
+                # Use a simple embedding of the filename for storage
+                simple_embedding = [0.0] * 1536  # Dummy embedding for storage
+                
+                text_collection.add(
+                    ids=[f"fulltext_{filename}"],
+                    embeddings=[simple_embedding],
+                    documents=[text],
+                    metadatas=[{
+                        "filename": filename,
+                        "content_type": "original_text",
+                        "character_count": len(text),
+                        "word_count": len(text.split())
+                    }]
+                )
+                
+                logger.info(f"✅ Stored original text for {filename}")
+                
+            except Exception as e:
+                logger.error(f"Failed to store original text: {e}")
 
     def get_system_status(self) -> Dict:
         """Get system component status"""

@@ -20,7 +20,6 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import streamlit as st
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 import PyPDF2
 import io
 

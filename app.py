@@ -23,6 +23,10 @@ import streamlit as st
 import PyPDF2
 import io
 
+# module to add instead of just breaking sentances, to then get about 
+# 500 lines of text to write a summary of about 50 lines.  10:1 ratio.
+from hierarchical_processor import HierarchicalProcessor
+
 import nltk
 import re
 # Download required NLTK data - Updated for NLTK 3.9.1
@@ -77,7 +81,7 @@ config = Config()
 # Pydantic models
 class ChatRequest(BaseModel):
     query: str
-    top_k: int = 3
+    top_k: int = 15 
 
 class ChatResponse(BaseModel):
     answer: str
@@ -248,6 +252,10 @@ class RAGSystem:
         else:
             raise ValueError("OpenAI API key is required. Please set OPENAI_API_KEY environment variable.")
 
+        # Add hierarchical processor
+        self.hierarchical_processor = HierarchicalProcessor(self)
+        logger.info("✅ Hierarchical processor initialized")
+
     def _init_chromadb(self) -> None:
         """Initialize ChromaDB with connection retries"""
         for attempt in range(3):
@@ -327,7 +335,7 @@ class RAGSystem:
         
         try:
             logger.info(f"📄 Processing document: {filename}")
-            
+
             # Extract text
             text = self.extract_text(file_content, filename)
             if not text.strip():
@@ -339,6 +347,9 @@ class RAGSystem:
             
             logger.info(f"📝 Extracted {len(text)} characters")
             
+            # Store original text for hierarchical processing
+            self.store_original_text(text, filename)
+
             # Upload to S3 if configured
             if self.s3_client:
                 try:
@@ -469,7 +480,47 @@ class RAGSystem:
                 sources=[],
                 processing_time=time.time() - start_time
             )
-    
+   
+    # Enhanced search method for RAGSystem class:
+    def search_enhanced(self, query: str, top_k: int = 5, use_summaries: bool = True):
+        """Enhanced search that can use both chunks and summaries"""
+        
+        if hasattr(self, 'hierarchical_processor') and use_summaries:
+            return self.hierarchical_processor.search_with_summaries(query, top_k_summaries=5, top_k_chunks=top_k)
+        else:
+            return self.search_and_answer(query, top_k)
+
+    def store_original_text(self, text: str, filename: str):
+        """Store original document text for later hierarchical processing"""
+        try:
+            # Create or get original text collection
+            text_collection = self.chroma_client.get_or_create_collection(
+                name="original_texts",
+                metadata={"description": "Original document texts for hierarchical processing"}
+            )
+            
+            # Store the full text
+            # Use a simple embedding of the filename for storage
+            simple_embedding = [0.0] * 1536  # Dummy embedding for storage
+            
+            text_collection.add(
+                ids=[f"fulltext_{filename}"],
+                embeddings=[simple_embedding],
+                documents=[text],
+                metadatas=[{
+                    "filename": filename,
+                    "content_type": "original_text",
+                    "character_count": len(text),
+                    "word_count": len(text.split())
+                }]
+            )
+            
+            logger.info(f"✅ Stored original text for {filename}")
+            
+        except Exception as e:
+            logger.error(f"Failed to store original text: {e}")
+
+
     def get_system_status(self) -> Dict:
         """Get system component status"""
         status = {
@@ -593,37 +644,25 @@ def create_streamlit_app():
     
     st.title("📚 RAG Document Chat System")
     st.markdown("Upload documents and chat with them using AI!")
-    
+
     # Sidebar for system status and file upload
-    with st.sidebar:
-        st.header("📊 System Status")
+    # File upload section
+    st.header("📁 Document Processing")
+    
+    uploaded_file = st.file_uploader(
+        "Choose a document",
+        type=['pdf', 'txt'],
+        help="Upload PDF or TXT files to add to your knowledge base"
+    )
+    
+    if uploaded_file is not None:
+        # Step 1: Basic Processing
+        col1, col2 = st.columns(2)
         
-        status = rag_system.get_system_status()
-        
-        # Status indicators
-        chromadb_status = "🟢" if status["chromadb"] == "connected" else "🟡" if status["chromadb"] == "in-memory" else "🔴"
-        openai_status = "🟢" if status["openai"] == "connected" else "🔴"
-        s3_status = "🟢" if status["s3"] == "connected" else "🟡" if status["s3"] == "disabled" else "🔴"
-        
-        st.markdown(f"**ChromaDB:** {chromadb_status} {status['chromadb']}")
-        st.markdown(f"**OpenAI:** {openai_status} {status['openai']}")
-        st.markdown(f"**S3:** {s3_status} {status['s3']}")
-        
-        st.divider()
-        
-        # File upload section
-        st.header("📁 Upload Document")
-        uploaded_file = st.file_uploader(
-            "Choose a document",
-            type=['pdf', 'txt'],
-            help="Upload PDF or TXT files to add to your knowledge base"
-        )
-        
-        if uploaded_file is not None:
-            if st.button("🔄 Process Document", use_container_width=True):
-                with st.spinner("Processing document..."):
+        with col1:
+            if st.button("📄 Basic Chunks", use_container_width=True, help="Process into logical chunks"):
+                with st.spinner("Creating logical chunks..."):
                     try:
-                        # Process the document
                         result = asyncio.run(rag_system.process_document(
                             uploaded_file.read(), uploaded_file.name
                         ))
@@ -631,11 +670,91 @@ def create_streamlit_app():
                         if result.status == "success":
                             st.success(f"✅ {result.message}")
                             st.info(f"⏱️ Processed in {result.processing_time:.2f}s")
+                            
+                            # Store filename for step 2
+                            st.session_state['last_processed_file'] = uploaded_file.name
                         else:
                             st.error(f"❌ {result.message}")
                             
                     except Exception as e:
                         st.error(f"❌ Error: {str(e)}")
+        
+        # Step 2: Enhanced Processing (only available after step 1)
+        with col2:
+            if 'last_processed_file' in st.session_state and st.session_state['last_processed_file'] == uploaded_file.name:
+                if st.button("🧠 Smart Summaries", use_container_width=True, help="Add 10:1 compressed summaries"):
+                    with st.spinner("Creating smart summaries (10:1 compression)..."):
+                        try:
+                            result = asyncio.run(
+                                rag_system.hierarchical_processor.process_document_hierarchically(
+                                    uploaded_file.name
+                                )
+                            )
+                            
+                            if result.status == "success":
+                                st.success(f"✅ {result.message}")
+                                
+                                # Show compression stats
+                                stats = result.compression_stats
+                                col_a, col_b, col_c = st.columns(3)
+                                
+                                with col_a:
+                                    st.metric(
+                                        "Logical Groups", 
+                                        result.logical_groups_created
+                                    )
+                                
+                                with col_b:
+                                    st.metric(
+                                        "Compression Ratio", 
+                                        f"{stats.get('overall_compression_ratio', 0):.1f}:1"
+                                    )
+                                
+                                with col_c:
+                                    st.metric(
+                                        "Processing Time", 
+                                        f"{result.total_processing_time:.1f}s"
+                                    )
+                                
+                                # Show word reduction
+                                input_words = stats.get('total_input_words', 0)
+                                output_words = stats.get('total_output_words', 0)
+                                
+                                st.info(f"📊 Compressed {input_words:,} words → {output_words:,} words")
+                                
+                            else:
+                                st.error(f"❌ {result.message}")
+                                
+                        except Exception as e:
+                            st.error(f"❌ Error: {str(e)}")
+            else:
+                st.button("🧠 Smart Summaries", use_container_width=True, disabled=True, help="Process basic chunks first")
+        
+        # Add processing status
+        st.divider()
+        st.subheader("📊 Processing Status")
+        
+        # Check what collections exist
+        try:
+            # Count documents in each collection
+            basic_count = len(rag_system.collection.get()['ids'])
+            
+            summary_count = 0
+            if hasattr(rag_system, 'hierarchical_processor') and rag_system.hierarchical_processor.summary_collection:
+                try:
+                    summary_count = len(rag_system.hierarchical_processor.summary_collection.get()['ids'])
+                except:
+                    summary_count = 0
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Basic Chunks", basic_count)
+            with col2:
+                st.metric("Smart Summaries", summary_count)
+                
+        except Exception as e:
+            st.warning("Could not retrieve processing stats")
+
     
     # Main chat interface
     st.header("💬 Chat with Your Documents")
@@ -663,12 +782,23 @@ def create_streamlit_app():
         # Display user message
         with st.chat_message("user"):
             st.markdown(prompt)
-        
+
         # Generate assistant response
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 try:
-                    response = rag_system.search_and_answer(prompt)
+                    # Check if we have summaries available
+                    has_summaries = (hasattr(rag_system, 'hierarchical_processor') and 
+                                   rag_system.hierarchical_processor.summary_collection)
+                    
+                    if has_summaries:
+                        # Use enhanced search with summaries
+                        response = rag_system.search_enhanced(prompt, top_k=8, use_summaries=True)
+                        st.caption("🧠 Using smart summaries + detailed chunks")
+                    else:
+                        # Use regular search
+                        response = rag_system.search_and_answer(prompt, top_k=8)
+                        st.caption("📄 Using basic chunks only")
                     
                     # Display answer
                     st.markdown(response.answer)
@@ -684,7 +814,10 @@ def create_streamlit_app():
                     if response.sources:
                         with st.expander("📚 Sources", expanded=False):
                             for source in response.sources:
-                                st.text(f"• {source}")
+                                if source.startswith("Summary:"):
+                                    st.markdown(f"🧠 {source}")
+                                else:
+                                    st.text(f"📄 {source}")
                     
                     # Show processing time
                     st.caption(f"⏱️ Response generated in {response.processing_time:.2f}s")
@@ -697,7 +830,7 @@ def create_streamlit_app():
                         "content": error_msg,
                         "sources": []
                     })
-
+        
 def main():
     """Main application entry point"""
     if len(sys.argv) > 1:

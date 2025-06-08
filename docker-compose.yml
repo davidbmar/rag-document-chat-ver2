@@ -2,8 +2,8 @@ version: '3.8'
 
 services:
   chromadb:
-    # Use a specific version that's compatible with your client
-    image: chromadb/chroma:0.4.18
+    # Updated to version compatible with NumPy 2.x
+    image: chromadb/chroma:0.5.20
     container_name: rag_chromadb
     ports:
       - "8002:8000"
@@ -15,8 +15,8 @@ services:
       - ANONYMIZED_TELEMETRY=False
     restart: unless-stopped
     healthcheck:
-      # Use wget instead of curl (available in ChromaDB container)
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/api/v2/heartbeat"]
+      # Updated API endpoint for v0.5.x
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/api/v1/heartbeat"]
       interval: 30s
       timeout: 10s
       retries: 3

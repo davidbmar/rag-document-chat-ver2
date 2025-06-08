@@ -8,7 +8,10 @@ streamlit==1.28.1
 # AI/ML libraries
 openai==1.84.0
 langchain==0.0.350
-chromadb==0.4.18
+chromadb==0.5.20
+
+# Natural Language Processing
+nltk==3.9.1
 
 # Document processing
 PyPDF2==3.0.1

@@ -116,33 +116,88 @@ if [ ! -f ".env" ]; then
         cp .env.example .env
         print_status "Environment file created from template"
         print_warning "Please edit .env file with your API keys and credentials"
+    elif [ -f "sample.env.txt" ]; then
+        cp sample.env.txt .env
+        print_status "Environment file created from sample"
+        print_warning "Please edit .env file with your API keys and credentials"
     else
-        print_error ".env.example not found"
+        print_error "No .env template found"
         exit 1
     fi
 else
     print_warning "Environment file already exists"
 fi
 
-# Step 7: Start Docker services
-echo "🐳 Step 7: Starting Docker services..."
+# Step 7: Clean up and start Docker services
+echo "🐳 Step 7: Setting up Docker services..."
 if [ -f "docker-compose.yml" ]; then
     # Start Docker service if not running
     sudo systemctl start docker
     
-    # Start ChromaDB
+    # Clean up any existing containers to avoid port conflicts
+    echo "🧹 Cleaning up existing containers..."
+    
+    # Stop and remove any existing ChromaDB containers
+    if docker ps -q --filter "name=rag_chromadb" | grep -q .; then
+        print_warning "Stopping existing ChromaDB container..."
+        docker stop rag_chromadb || true
+    fi
+    
+    if docker ps -aq --filter "name=rag_chromadb" | grep -q .; then
+        print_warning "Removing existing ChromaDB container..."
+        docker rm rag_chromadb || true
+    fi
+    
+    # Clean up docker-compose services
+    docker-compose down 2>/dev/null || true
+    
+    # Check if port 8002 is still in use
+    if sudo netstat -tlnp | grep :8002 > /dev/null 2>&1; then
+        print_warning "Port 8002 is still in use. Attempting to free it..."
+        
+        # Try to find and stop the process using port 8002
+        PORT_PID=$(sudo lsof -ti:8002 2>/dev/null || echo "")
+        if [ ! -z "$PORT_PID" ]; then
+            print_warning "Stopping process $PORT_PID using port 8002..."
+            sudo kill $PORT_PID 2>/dev/null || true
+            sleep 2
+        fi
+    fi
+    
+    # Start ChromaDB fresh
+    echo "🚀 Starting ChromaDB..."
     docker-compose up -d chromadb
     
-    # Wait for ChromaDB to be ready
+    # Wait for ChromaDB to be ready with better error handling
     echo "⏳ Waiting for ChromaDB to start..."
-    for i in {1..30}; do
+    RETRY_COUNT=0
+    MAX_RETRIES=30
+    
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
         if curl -s http://localhost:8002/api/v1/heartbeat > /dev/null 2>&1; then
-            print_status "ChromaDB is running"
+            print_status "ChromaDB is ready"
             break
         fi
-        if [ $i -eq 30 ]; then
-            print_warning "ChromaDB may not be fully ready yet. Check with: docker-compose logs chromadb"
+        
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+            print_error "ChromaDB failed to start after $MAX_RETRIES attempts"
+            echo ""
+            echo "🔍 Troubleshooting information:"
+            echo "Container status:"
+            docker ps -a | grep chromadb || echo "No ChromaDB containers found"
+            echo ""
+            echo "Container logs:"
+            docker-compose logs chromadb 2>/dev/null || echo "No logs available"
+            echo ""
+            echo "Port status:"
+            sudo netstat -tlnp | grep :8002 || echo "Port 8002 not in use"
+            echo ""
+            print_warning "You can try running: docker-compose restart chromadb"
+            exit 1
         fi
+        
+        echo "Attempt $RETRY_COUNT/$MAX_RETRIES - waiting..."
         sleep 2
     done
 else
@@ -150,7 +205,7 @@ else
     exit 1
 fi
 
-# Step 8: Create test setup script
+# Step 8: Create enhanced test setup script
 echo "🧪 Step 8: Creating test script..."
 cat > test_setup.py << 'EOF'
 #!/usr/bin/env python3
@@ -170,6 +225,7 @@ def test_imports() -> bool:
         import boto3
         import PyPDF2
         import langchain
+        import nltk  # New addition
         print("✅ All Python packages imported successfully")
         return True
     except ImportError as e:
@@ -195,6 +251,23 @@ def test_chromadb() -> bool:
         except Exception as e2:
             print(f"❌ ChromaDB completely failed: {e2}")
             return False
+
+def test_nltk() -> bool:
+    """Test NLTK functionality"""
+    try:
+        import nltk
+        # Test sentence tokenization
+        test_text = "Hello world. This is Dr. Smith. He went to the store."
+        tokens = nltk.sent_tokenize(test_text)
+        if len(tokens) >= 2:
+            print("✅ NLTK sentence tokenization working")
+            return True
+        else:
+            print("⚠️ NLTK tokenization returned unexpected results")
+            return False
+    except Exception as e:
+        print(f"❌ NLTK test failed: {e}")
+        return False
 
 def test_openai() -> bool:
     """Test OpenAI API key"""
@@ -242,6 +315,7 @@ def main():
     tests = [
         ("Package Imports", test_imports),
         ("ChromaDB", test_chromadb),
+        ("NLTK", test_nltk),
         ("OpenAI API", test_openai),
         ("S3 (Optional)", test_s3)
     ]
@@ -257,7 +331,7 @@ def main():
         status = "✅ PASS" if results[i] else "❌ FAIL"
         print(f"  {name}: {status}")
     
-    required_tests = results[:2]  # Imports and ChromaDB
+    required_tests = results[:3]  # Imports, ChromaDB, and NLTK
     if all(required_tests):
         print("\n🎉 Core system is ready!")
         print("   Run: streamlit run app.py")
@@ -295,6 +369,9 @@ echo ""
 echo "   # API server:"
 echo "   python app.py api"
 echo ""
+echo "   # Or use the convenient start script:"
+echo "   ./start.sh"
+echo ""
 echo "4. Access the application:"
 echo "   Web UI: http://localhost:8501"
 echo "   API: http://localhost:8001"
@@ -304,11 +381,13 @@ echo "   • Always activate the virtual environment: source rag_env/bin/activat
 echo "   • Set your OpenAI API key in the .env file"
 echo "   • ChromaDB will run on port 8002"
 echo "   • Check logs with: docker-compose logs chromadb"
+echo "   • Re-run this script anytime safely"
 echo ""
 echo "🆘 Troubleshooting:"
 echo "   • Run: python test_setup.py"
 echo "   • Check: docker-compose ps"
 echo "   • Restart: docker-compose restart chromadb"
+echo "   • Clean restart: docker-compose down && docker-compose up -d"
 
 # Final check
 if command -v streamlit &> /dev/null && [ -f "app.py" ]; then
@@ -316,3 +395,6 @@ if command -v streamlit &> /dev/null && [ -f "app.py" ]; then
 else
     print_warning "Please ensure app.py is in the current directory"
 fi
+
+echo ""
+print_status "Setup script completed successfully and can be run multiple times safely!"

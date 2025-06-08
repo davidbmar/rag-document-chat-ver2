@@ -24,6 +24,12 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 import PyPDF2
 import io
 
+import nltk
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt')
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -68,6 +74,117 @@ class DocumentResponse(BaseModel):
     chunks_created: int = 0
     processing_time: float = 0.0
 
+
+class LogicalTextSplitter:
+    """Enhanced text splitter that respects sentence and paragraph boundaries"""
+    
+    def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 100):
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+        
+        # Common abbreviations that shouldn't end sentences
+        self.abbreviations = {
+            'Dr.', 'Mr.', 'Mrs.', 'Ms.', 'Prof.', 'vs.', 'etc.', 
+            'i.e.', 'e.g.', 'cf.', 'al.', 'Inc.', 'Ltd.', 'Corp.',
+            'St.', 'Ave.', 'Blvd.', 'Dept.', 'Fig.', 'Vol.', 'No.'
+        }
+    
+    def split_text(self, text: str) -> List[str]:
+        """Split text into logical chunks that respect sentence boundaries"""
+        # First, split into paragraphs
+        paragraphs = self._split_by_paragraphs(text)
+        
+        # Then process each paragraph into sentence-aware chunks
+        all_chunks = []
+        for paragraph in paragraphs:
+            paragraph_chunks = self._chunk_paragraph(paragraph)
+            all_chunks.extend(paragraph_chunks)
+        
+        return all_chunks
+    
+    def _split_by_paragraphs(self, text: str) -> List[str]:
+        """Split text into paragraphs"""
+        paragraphs = re.split(r'\n\s*\n', text.strip())
+        
+        cleaned_paragraphs = []
+        for para in paragraphs:
+            para = para.strip()
+            if para and len(para) > 20:  # Ignore very short paragraphs
+                para = re.sub(r'\s+', ' ', para)  # Normalize whitespace
+                cleaned_paragraphs.append(para)
+        
+        return cleaned_paragraphs
+    
+    def _split_into_sentences(self, text: str) -> List[str]:
+        """Split text into sentences with better accuracy"""
+        sentences = nltk.sent_tokenize(text)
+        
+        # Post-process to handle abbreviations
+        processed_sentences = []
+        i = 0
+        
+        while i < len(sentences):
+            current_sentence = sentences[i]
+            
+            # Check if current sentence ends with abbreviation
+            if i < len(sentences) - 1:
+                words = current_sentence.split()
+                if words and any(current_sentence.rstrip().endswith(abbrev) for abbrev in self.abbreviations):
+                    next_sentence = sentences[i + 1].strip()
+                    if next_sentence and next_sentence[0].islower():
+                        current_sentence += " " + next_sentence
+                        i += 1  # Skip next sentence as we've merged it
+            
+            processed_sentences.append(current_sentence.strip())
+            i += 1
+        
+        return [s for s in processed_sentences if s]
+    
+    def _chunk_paragraph(self, paragraph: str) -> List[str]:
+        """Split a paragraph into logical chunks respecting sentence boundaries"""
+        if len(paragraph) <= self.chunk_size:
+            return [paragraph]
+        
+        sentences = self._split_into_sentences(paragraph)
+        chunks = []
+        current_chunk = ""
+        current_sentences = []
+        
+        for sentence in sentences:
+            potential_chunk = current_chunk + " " + sentence if current_chunk else sentence
+            
+            if len(potential_chunk) > self.chunk_size and current_chunk:
+                chunks.append(current_chunk.strip())
+                
+                # Handle overlap
+                if self.chunk_overlap > 0 and current_sentences:
+                    overlap_text = ""
+                    overlap_chars = 0
+                    
+                    for prev_sentence in reversed(current_sentences):
+                        if overlap_chars + len(prev_sentence) <= self.chunk_overlap:
+                            overlap_text = prev_sentence + " " + overlap_text if overlap_text else prev_sentence
+                            overlap_chars += len(prev_sentence)
+                        else:
+                            break
+                    
+                    current_chunk = overlap_text + " " + sentence if overlap_text else sentence
+                    current_sentences = [sentence] if not overlap_text else overlap_text.split() + [sentence]
+                else:
+                    current_chunk = sentence
+                    current_sentences = [sentence]
+            else:
+                current_chunk = potential_chunk
+                current_sentences.append(sentence)
+        
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+        
+        return chunks
+
+
+
+
 class RAGSystem:
     """Main RAG system implementation"""
     
@@ -97,10 +214,9 @@ class RAGSystem:
         self._init_chromadb()
         
         # Initialize text splitter
-        self.text_splitter = RecursiveCharacterTextSplitter(
+        self.text_splitter = LogicalTextSplitter(
             chunk_size=1000,
-            chunk_overlap=100,
-            separators=["\n\n", "\n", ". ", " ", ""]
+            chunk_overlap=100
         )
         
         # Initialize OpenAI client

@@ -258,7 +258,8 @@ def clear_everything():
         collections_to_delete = [
             "documents", 
             "logical_summaries", 
-            "paragraph_summaries"
+            "paragraph_summaries",
+            "original_texts"  # Found this in the logs!
         ]
         
         # The problem: SearchEngine uses get_or_create_collection() which recreates them!
@@ -388,7 +389,7 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                 try:
                     chromadb_client = rag_system.clients.chromadb
                     debug_info = []
-                    for coll_name in ["documents", "logical_summaries", "paragraph_summaries"]:
+                    for coll_name in ["documents", "logical_summaries", "paragraph_summaries", "original_texts"]:
                         try:
                             coll = chromadb_client.get_collection(coll_name)
                             count = len(coll.get()['ids'])
@@ -503,7 +504,7 @@ with st.sidebar:
         chromadb_client = rag_system.clients.chromadb
         
         # Check which collections exist by trying to get them
-        collections_to_check = ["documents", "logical_summaries", "paragraph_summaries"]
+        collections_to_check = ["documents", "logical_summaries", "paragraph_summaries", "original_texts"]
         existing_collections = []
         
         for collection_name in collections_to_check:

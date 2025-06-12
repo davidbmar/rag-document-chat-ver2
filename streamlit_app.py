@@ -259,26 +259,25 @@ def clear_everything():
             "paragraph_summaries"
         ]
         
-        # Get list of existing collections first
-        try:
-            existing_collections = chromadb_client.list_collections()
-            existing_names = [col.name for col in existing_collections]
-            st.info(f"📋 Found {len(existing_collections)} existing collections: {existing_names}")
-        except Exception as e:
-            st.warning(f"⚠️ Could not list collections: {str(e)}")
-            existing_names = []
-        
+        # Delete collections one by one
         deleted_count = 0
         for collection_name in collections_to_delete:
             try:
-                if collection_name in existing_names:
-                    chromadb_client.delete_collection(collection_name)
-                    st.success(f"🗑️ Deleted {collection_name} collection")
-                    deleted_count += 1
-                else:
-                    st.info(f"ℹ️ Collection {collection_name} didn't exist")
+                # Try to get the collection first to see if it exists
+                collection = chromadb_client.get_collection(collection_name)
+                count = len(collection.get()['ids'])
+                st.info(f"📋 Found {collection_name} with {count} items")
+                
+                # Now delete it
+                chromadb_client.delete_collection(collection_name)
+                st.success(f"🗑️ Deleted {collection_name} collection")
+                deleted_count += 1
+                
             except Exception as e:
-                st.error(f"❌ Failed to delete {collection_name}: {str(e)}")
+                if "does not exist" in str(e).lower() or "not found" in str(e).lower():
+                    st.info(f"ℹ️ Collection {collection_name} didn't exist")
+                else:
+                    st.error(f"❌ Failed to delete {collection_name}: {str(e)}")
         
         if deleted_count > 0:
             st.success(f"🧹 Deleted {deleted_count} ChromaDB collections")
@@ -456,10 +455,24 @@ with st.sidebar:
     # Debug info - show current collections
     try:
         rag_system = st.session_state.rag_system
-        existing_collections = rag_system.clients.chromadb.list_collections()
-        collection_names = [col.name for col in existing_collections]
-        if collection_names:
-            st.caption(f"🗄️ Current collections: {', '.join(collection_names)}")
+        chromadb_client = rag_system.clients.chromadb
+        
+        # Check which collections exist by trying to get them
+        collections_to_check = ["documents", "logical_summaries", "paragraph_summaries"]
+        existing_collections = []
+        
+        for collection_name in collections_to_check:
+            try:
+                collection = chromadb_client.get_collection(collection_name)
+                # If we can get it, it exists - check if it has data
+                count = len(collection.get()['ids'])
+                existing_collections.append(f"{collection_name}({count})")
+            except:
+                # Collection doesn't exist, skip
+                pass
+        
+        if existing_collections:
+            st.caption(f"🗄️ Current collections: {', '.join(existing_collections)}")
         else:
             st.caption("📭 No collections exist")
     except Exception as e:

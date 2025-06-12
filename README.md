@@ -24,11 +24,37 @@ The system automatically selects the best search strategy:
 
 ## 📋 Prerequisites
 
-- Python 3.8+
+- Linux/Ubuntu server (tested on Ubuntu 20.04+)
+- Python 3.9+
+- Docker and Docker Compose
 - OpenAI API key
 - AWS credentials (optional, for S3 storage)
 
-## 🛠️ Installation
+## 🛠️ Quick Setup (Recommended)
+
+### For New EC2/Ubuntu Servers
+
+1. **Clone and run automated setup**
+   ```bash
+   git clone https://github.com/davidbmar/rag-document-chat-ver2.git
+   cd rag-document-chat-ver2
+   chmod +x setup.sh start.sh
+   ./setup.sh
+   ```
+
+2. **Configure your API keys**
+   ```bash
+   nano .env
+   # Replace KEYHERE with your actual OpenAI API key
+   # Configure AWS credentials if using S3
+   ```
+
+3. **Start the application**
+   ```bash
+   ./start.sh
+   ```
+
+### Manual Installation
 
 1. **Clone the repository**
    ```bash
@@ -36,20 +62,33 @@ The system automatically selects the best search strategy:
    cd rag-document-chat-ver2
    ```
 
-2. **Install dependencies**
+2. **Install system dependencies**
    ```bash
+   sudo apt update
+   sudo apt install -y python3 python3-pip python3-venv docker.io docker-compose
+   ```
+
+3. **Set up Python environment**
+   ```bash
+   python3 -m venv rag_env
+   source rag_env/bin/activate
    pip install -r requirements.txt
    ```
 
-3. **Configure environment**
+4. **Configure environment**
    ```bash
    cp sample.env.txt .env
    # Edit .env with your API keys and settings
    ```
 
-4. **Download NLTK data** (automatic on first run)
+5. **Start ChromaDB**
    ```bash
-   python -c "import nltk; nltk.download('punkt')"
+   docker-compose up -d chromadb
+   ```
+
+6. **Download NLTK data**
+   ```bash
+   python3 -c "import nltk; nltk.download('punkt')"
    ```
 
 ## ⚙️ Configuration
@@ -73,15 +112,35 @@ LOG_LEVEL=INFO
 
 ## 🚀 Usage
 
-### Web Interface (Streamlit)
+### Quick Start
 ```bash
-python streamlit_app.py
+./start.sh
 ```
 
-### API Server (FastAPI)
+Choose from 4 options:
+1. **Web Interface** (Streamlit) - Interactive document chat
+2. **API Server** (FastAPI) - REST API for integration
+3. **Both interfaces** - Run simultaneously
+4. **Background mode** - Run as daemon services
+
+### Manual Commands
+
+#### Web Interface (Streamlit)
 ```bash
-python app_refactored.py
+source rag_env/bin/activate
+streamlit run streamlit_app.py --server.address 0.0.0.0 --server.port 8501
 ```
+
+#### API Server (FastAPI)
+```bash
+source rag_env/bin/activate
+python3 app_refactored.py
+```
+
+### Access URLs
+- **Web Interface**: http://localhost:8501 (or your-server-ip:8501)
+- **API Server**: http://localhost:8000 (or your-server-ip:8000)
+- **API Documentation**: http://localhost:8000/docs
 
 ### Document Processing Workflow
 
@@ -140,6 +199,22 @@ Each processing step provides detailed metrics:
 - **Word count reductions**
 - **Processing times**
 - **Storage efficiency**
+
+## ☁️ EC2 Deployment Notes
+
+### Security Group Configuration
+For external access, configure your EC2 security group to allow:
+- **Port 8501** (Streamlit Web Interface)
+- **Port 8000** (FastAPI Server)
+- **Port 22** (SSH access)
+- **Port 8002** (ChromaDB - internal only, not needed for external access)
+
+### Firewall Commands (if using UFW)
+```bash
+sudo ufw allow 8501/tcp
+sudo ufw allow 8000/tcp
+sudo ufw allow 22/tcp
+```
 
 ## 🐳 Docker Deployment
 

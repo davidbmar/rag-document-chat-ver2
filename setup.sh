@@ -174,7 +174,7 @@ if [ -f "docker-compose.yml" ]; then
     MAX_RETRIES=30
     
     while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-        if curl -s http://localhost:8002/api/v1/heartbeat > /dev/null 2>&1; then
+        if curl -s http://localhost:8002/api/v2/heartbeat > /dev/null 2>&1; then
             print_status "ChromaDB is ready"
             break
         fi
@@ -346,8 +346,13 @@ EOF
 chmod +x test_setup.py
 print_status "Test script created"
 
-# Step 9: Run basic tests
-echo "🧪 Step 9: Running setup verification..."
+# Step 9: Download NLTK data
+echo "📚 Step 9: Setting up NLTK data..."
+python3 -c "import nltk; nltk.download('punkt', quiet=True)" || true
+print_status "NLTK data downloaded"
+
+# Step 10: Run basic tests
+echo "🧪 Step 10: Running setup verification..."
 python test_setup.py
 
 # Final instructions
@@ -359,27 +364,23 @@ echo "Next steps:"
 echo "1. Edit the .env file with your credentials:"
 echo "   nano .env"
 echo ""
-echo "2. Load environment variables:"
-echo "   source .env"
-echo ""
-echo "3. Run the application:"
+echo "2. Run the application:"
 echo "   # Web interface (recommended):"
-echo "   streamlit run app.py"
-echo ""
-echo "   # API server:"
-echo "   python app.py api"
-echo ""
-echo "   # Or use the convenient start script:"
 echo "   ./start.sh"
 echo ""
-echo "4. Access the application:"
-echo "   Web UI: http://localhost:8501"
-echo "   API: http://localhost:8001"
+echo "   # Or manually:"
+echo "   streamlit run streamlit_app.py --server.address 0.0.0.0 --server.port 8501"
+echo "   python3 app_refactored.py  # For FastAPI server"
+echo ""
+echo "3. Access the application:"
+echo "   Web UI: http://localhost:8501 (or your-ec2-ip:8501)"
+echo "   API: http://localhost:8000 (or your-ec2-ip:8000)"
 echo ""
 echo "📝 Important notes:"
 echo "   • Always activate the virtual environment: source rag_env/bin/activate"
 echo "   • Set your OpenAI API key in the .env file"
 echo "   • ChromaDB will run on port 8002"
+echo "   • For EC2: ensure security groups allow ports 8501 and 8000"
 echo "   • Check logs with: docker-compose logs chromadb"
 echo "   • Re-run this script anytime safely"
 echo ""
@@ -388,12 +389,13 @@ echo "   • Run: python test_setup.py"
 echo "   • Check: docker-compose ps"
 echo "   • Restart: docker-compose restart chromadb"
 echo "   • Clean restart: docker-compose down && docker-compose up -d"
+echo "   • Kill processes on ports: ./cleanup_chroma_ports.sh"
 
 # Final check
-if command -v streamlit &> /dev/null && [ -f "app.py" ]; then
-    print_status "System ready! You can now run: streamlit run app.py"
+if command -v streamlit &> /dev/null && [ -f "streamlit_app.py" ]; then
+    print_status "System ready! You can now run: ./start.sh"
 else
-    print_warning "Please ensure app.py is in the current directory"
+    print_warning "Please ensure streamlit_app.py is in the current directory"
 fi
 
 echo ""

@@ -259,13 +259,31 @@ def clear_everything():
             "paragraph_summaries"
         ]
         
+        # Get list of existing collections first
+        try:
+            existing_collections = chromadb_client.list_collections()
+            existing_names = [col.name for col in existing_collections]
+            st.info(f"📋 Found {len(existing_collections)} existing collections: {existing_names}")
+        except Exception as e:
+            st.warning(f"⚠️ Could not list collections: {str(e)}")
+            existing_names = []
+        
+        deleted_count = 0
         for collection_name in collections_to_delete:
             try:
-                collection = chromadb_client.get_collection(collection_name)
-                chromadb_client.delete_collection(collection_name)
-                st.info(f"🗑️ Deleted {collection_name} collection")
+                if collection_name in existing_names:
+                    chromadb_client.delete_collection(collection_name)
+                    st.success(f"🗑️ Deleted {collection_name} collection")
+                    deleted_count += 1
+                else:
+                    st.info(f"ℹ️ Collection {collection_name} didn't exist")
             except Exception as e:
-                st.warning(f"⚠️ Could not delete {collection_name}: {str(e)}")
+                st.error(f"❌ Failed to delete {collection_name}: {str(e)}")
+        
+        if deleted_count > 0:
+            st.success(f"🧹 Deleted {deleted_count} ChromaDB collections")
+        else:
+            st.info("📭 No ChromaDB collections to delete")
         
         # Clear S3 files (if configured)
         try:
@@ -434,6 +452,18 @@ with st.sidebar:
     # Clear Everything section
     st.divider()
     st.subheader("🗑️ System Reset")
+    
+    # Debug info - show current collections
+    try:
+        rag_system = st.session_state.rag_system
+        existing_collections = rag_system.clients.chromadb.list_collections()
+        collection_names = [col.name for col in existing_collections]
+        if collection_names:
+            st.caption(f"🗄️ Current collections: {', '.join(collection_names)}")
+        else:
+            st.caption("📭 No collections exist")
+    except Exception as e:
+        st.caption(f"⚠️ Could not check collections: {str(e)}")
     
     if st.button(
         "⚠️ Clear Everything", 

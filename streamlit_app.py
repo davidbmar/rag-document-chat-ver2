@@ -249,6 +249,8 @@ def clear_everything():
         if 'last_processed_file' in st.session_state:
             del st.session_state['last_processed_file']
         
+        st.info("🧹 Cleared session data")
+        
         # Clear ChromaDB collections
         rag_system = st.session_state.rag_system
         chromadb_client = rag_system.clients.chromadb
@@ -259,30 +261,49 @@ def clear_everything():
             "paragraph_summaries"
         ]
         
-        # Delete collections one by one
+        # The problem: SearchEngine uses get_or_create_collection() which recreates them!
+        # Solution: Delete collections AND clear all data from recreated ones
         deleted_count = 0
+        cleared_count = 0
+        
         for collection_name in collections_to_delete:
             try:
-                # Try to get the collection first to see if it exists
-                collection = chromadb_client.get_collection(collection_name)
-                count = len(collection.get()['ids'])
-                st.info(f"📋 Found {collection_name} with {count} items")
+                # First, try to delete the collection completely
+                try:
+                    collection = chromadb_client.get_collection(collection_name)
+                    count = len(collection.get()['ids'])
+                    if count > 0:
+                        st.info(f"📋 Found {collection_name} with {count} items")
+                        chromadb_client.delete_collection(collection_name)
+                        st.success(f"🗑️ Deleted {collection_name} collection")
+                        deleted_count += 1
+                    else:
+                        st.info(f"📭 Collection {collection_name} was already empty")
+                except Exception as e:
+                    if "does not exist" in str(e).lower():
+                        st.info(f"ℹ️ Collection {collection_name} didn't exist")
+                    else:
+                        st.warning(f"⚠️ Could not delete {collection_name}: {str(e)}")
                 
-                # Now delete it
-                chromadb_client.delete_collection(collection_name)
-                st.success(f"🗑️ Deleted {collection_name} collection")
-                deleted_count += 1
-                
+                # Now, since SearchEngine will recreate it, get the new empty one and verify it's empty
+                try:
+                    new_collection = chromadb_client.get_or_create_collection(collection_name)
+                    remaining_count = len(new_collection.get()['ids'])
+                    if remaining_count == 0:
+                        st.success(f"✅ {collection_name} is now empty")
+                        cleared_count += 1
+                    else:
+                        st.error(f"❌ {collection_name} still has {remaining_count} items!")
+                except Exception as e:
+                    st.warning(f"⚠️ Could not verify {collection_name}: {str(e)}")
+                    
             except Exception as e:
-                if "does not exist" in str(e).lower() or "not found" in str(e).lower():
-                    st.info(f"ℹ️ Collection {collection_name} didn't exist")
-                else:
-                    st.error(f"❌ Failed to delete {collection_name}: {str(e)}")
+                st.error(f"❌ Failed to process {collection_name}: {str(e)}")
         
-        if deleted_count > 0:
-            st.success(f"🧹 Deleted {deleted_count} ChromaDB collections")
+        if deleted_count > 0 or cleared_count > 0:
+            st.success(f"🧹 Processed {deleted_count + cleared_count} ChromaDB collections")
         else:
-            st.info("📭 No ChromaDB collections to delete")
+            st.info("📭 No ChromaDB collections to process")
         
         # Clear S3 files (if configured)
         try:
@@ -308,6 +329,15 @@ def clear_everything():
                         st.info("📁 S3 bucket was already empty")
         except Exception as e:
             st.warning(f"⚠️ Could not clear S3 files: {str(e)}")
+        
+        # Force reinitialize RAG system to clear collection references
+        try:
+            st.info("🔄 Reinitializing RAG system...")
+            from rag_system import RAGSystem
+            st.session_state.rag_system = RAGSystem()
+            st.success("✅ RAG system reinitialized")
+        except Exception as e:
+            st.warning(f"⚠️ Could not reinitialize RAG system: {str(e)}")
         
         st.success("🧹 Everything cleared! System reset to fresh state.")
         st.rerun()

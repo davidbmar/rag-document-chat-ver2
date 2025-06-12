@@ -243,6 +243,8 @@ def clear_chat_history():
 def clear_everything():
     """Clear all data: chat, documents, vectors, S3 files"""
     try:
+        st.info("🚀 Starting Clear Everything operation...")
+        
         # Clear session data
         st.session_state.messages = []
         st.session_state.conversation_history = []
@@ -272,31 +274,51 @@ def clear_everything():
                 # First, try to delete the collection completely
                 try:
                     collection = chromadb_client.get_collection(collection_name)
-                    count = len(collection.get()['ids'])
+                    items = collection.get()
+                    count = len(items['ids']) if items and 'ids' in items else 0
+                    
                     if count > 0:
                         st.info(f"📋 Found {collection_name} with {count} items")
+                        st.code(f"Sample IDs: {items['ids'][:3] if items['ids'] else 'None'}")
+                        
+                        # Actually delete the collection
                         chromadb_client.delete_collection(collection_name)
                         st.success(f"🗑️ Deleted {collection_name} collection")
                         deleted_count += 1
+                        
+                        # Verify deletion worked
+                        try:
+                            chromadb_client.get_collection(collection_name)
+                            st.error(f"❌ {collection_name} still exists after deletion!")
+                        except:
+                            st.success(f"✅ {collection_name} successfully deleted")
+                            
                     else:
                         st.info(f"📭 Collection {collection_name} was already empty")
+                        
                 except Exception as e:
                     if "does not exist" in str(e).lower():
                         st.info(f"ℹ️ Collection {collection_name} didn't exist")
                     else:
                         st.warning(f"⚠️ Could not delete {collection_name}: {str(e)}")
+                        st.code(f"Error details: {str(e)}")
                 
                 # Now, since SearchEngine will recreate it, get the new empty one and verify it's empty
                 try:
                     new_collection = chromadb_client.get_or_create_collection(collection_name)
-                    remaining_count = len(new_collection.get()['ids'])
+                    new_items = new_collection.get()
+                    remaining_count = len(new_items['ids']) if new_items and 'ids' in new_items else 0
+                    
                     if remaining_count == 0:
                         st.success(f"✅ {collection_name} is now empty")
                         cleared_count += 1
                     else:
                         st.error(f"❌ {collection_name} still has {remaining_count} items!")
+                        st.code(f"Remaining IDs: {new_items['ids'][:3] if new_items and new_items['ids'] else 'None'}")
+                        
                 except Exception as e:
                     st.warning(f"⚠️ Could not verify {collection_name}: {str(e)}")
+                    st.code(f"Verification error: {str(e)}")
                     
             except Exception as e:
                 st.error(f"❌ Failed to process {collection_name}: {str(e)}")
@@ -389,14 +411,27 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                 try:
                     chromadb_client = rag_system.clients.chromadb
                     debug_info = []
+                    total_items = 0
+                    
                     for coll_name in ["documents", "logical_summaries", "paragraph_summaries", "original_texts"]:
                         try:
                             coll = chromadb_client.get_collection(coll_name)
-                            count = len(coll.get()['ids'])
+                            items = coll.get()
+                            count = len(items['ids']) if items and 'ids' in items else 0
                             debug_info.append(f"{coll_name}:{count}")
-                        except:
-                            debug_info.append(f"{coll_name}:missing")
-                    st.caption(f"🔍 DEBUG: Collections before search: {', '.join(debug_info)}")
+                            total_items += count
+                            
+                            # Show sample IDs if any exist
+                            if count > 0 and items['ids']:
+                                sample_ids = items['ids'][:2]  # First 2 IDs
+                                debug_info.append(f"  └─ samples: {sample_ids}")
+                                
+                        except Exception as e:
+                            debug_info.append(f"{coll_name}:ERROR({str(e)[:30]})")
+                    
+                    st.caption(f"🔍 DEBUG: Total items across all collections: {total_items}")
+                    st.caption(f"🔍 DEBUG: {chr(10).join(debug_info)}")
+                    
                 except Exception as e:
                     st.caption(f"🔍 DEBUG: Could not check collections: {e}")
                 

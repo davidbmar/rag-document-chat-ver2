@@ -231,6 +231,73 @@ def get_conversation_context() -> str:
     
     return "\n".join(context_parts)
 
+def clear_chat_history():
+    """Clear only chat display and conversation memory"""
+    st.session_state.messages = []
+    st.session_state.conversation_history = []
+    if 'last_processed_file' in st.session_state:
+        del st.session_state['last_processed_file']
+    st.success("💬 Chat history cleared!")
+    st.rerun()
+
+def clear_everything():
+    """Clear all data: chat, documents, vectors, S3 files"""
+    try:
+        # Clear session data
+        st.session_state.messages = []
+        st.session_state.conversation_history = []
+        if 'last_processed_file' in st.session_state:
+            del st.session_state['last_processed_file']
+        
+        # Clear ChromaDB collections
+        rag_system = st.session_state.rag_system
+        chromadb_client = rag_system.clients.chromadb
+        
+        collections_to_delete = [
+            "documents", 
+            "logical_summaries", 
+            "paragraph_summaries"
+        ]
+        
+        for collection_name in collections_to_delete:
+            try:
+                collection = chromadb_client.get_collection(collection_name)
+                chromadb_client.delete_collection(collection_name)
+                st.info(f"🗑️ Deleted {collection_name} collection")
+            except Exception as e:
+                st.warning(f"⚠️ Could not delete {collection_name}: {str(e)}")
+        
+        # Clear S3 files (if configured)
+        try:
+            if hasattr(rag_system.clients, 's3') and rag_system.clients.s3:
+                from config import config
+                if config.s3_bucket:
+                    s3_client = rag_system.clients.s3
+                    bucket = config.s3_bucket
+                    
+                    # List and delete all objects in bucket
+                    response = s3_client.list_objects_v2(Bucket=bucket)
+                    if 'Contents' in response:
+                        objects_to_delete = [{'Key': obj['Key']} for obj in response['Contents']]
+                        if objects_to_delete:
+                            s3_client.delete_objects(
+                                Bucket=bucket,
+                                Delete={'Objects': objects_to_delete}
+                            )
+                            st.info(f"🗑️ Deleted {len(objects_to_delete)} files from S3")
+                        else:
+                            st.info("📁 S3 bucket was already empty")
+                    else:
+                        st.info("📁 S3 bucket was already empty")
+        except Exception as e:
+            st.warning(f"⚠️ Could not clear S3 files: {str(e)}")
+        
+        st.success("🧹 Everything cleared! System reset to fresh state.")
+        st.rerun()
+        
+    except Exception as e:
+        st.error(f"❌ Error during cleanup: {str(e)}")
+
 # Display chat history
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
@@ -356,6 +423,39 @@ with st.sidebar:
                 st.text(f"Q{i}: {turn['user'][:50]}...")
                 st.text(f"A{i}: {turn['assistant'][:50]}...")
                 st.divider()
+        
+        # Clear Chat button
+        if st.button("🗨️ Clear Chat History", use_container_width=True, help="Clear conversation display and memory only"):
+            clear_chat_history()
     else:
         st.info("💭 No conversation history yet")
         st.caption("Start chatting to build context")
+    
+    # Clear Everything section
+    st.divider()
+    st.subheader("🗑️ System Reset")
+    
+    if st.button(
+        "⚠️ Clear Everything", 
+        use_container_width=True, 
+        type="secondary",
+        help="⚠️ WARNING: Deletes ALL data including:\n• Chat history & conversation memory\n• All processed documents\n• ChromaDB vectors & summaries\n• S3 uploaded files\n• All processing status\n\nThis cannot be undone!"
+    ):
+        # Warning dialog
+        st.warning("🚨 **DANGER ZONE** 🚨")
+        st.markdown("""
+        **This will permanently delete:**
+        - 💬 All chat history and conversation memory
+        - 📚 All processed documents and their chunks
+        - 🧠 All smart summaries and paragraph summaries  
+        - 🗄️ All ChromaDB vector collections
+        - ☁️ All uploaded files from S3 storage
+        - ⚙️ All processing status and session data
+        
+        **This action cannot be undone!**
+        """)
+        
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col2:
+            if st.button("🔥 Yes, Delete Everything", type="primary", use_container_width=True):
+                clear_everything()

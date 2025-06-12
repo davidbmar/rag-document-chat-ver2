@@ -253,15 +253,23 @@ def clear_everything():
         
         st.info("🧹 Cleared session data")
         
-        # Clear ChromaDB collections
+        # Clear ChromaDB collections - use the SAME method as search engine
         rag_system = st.session_state.rag_system
         chromadb_client = rag_system.clients.chromadb
         
+        # Get the actual collection objects the search engine uses
+        collection_refs = {
+            "documents": rag_system.search_engine.document_collection,
+            "logical_summaries": rag_system.search_engine.summary_collection, 
+            "paragraph_summaries": rag_system.search_engine.paragraph_collection
+        }
+        
+        # Also check for collections by name
         collections_to_delete = [
             "documents", 
             "logical_summaries", 
             "paragraph_summaries",
-            "original_texts"  # Found this in the logs!
+            "original_texts"
         ]
         
         # The problem: SearchEngine uses get_or_create_collection() which recreates them!
@@ -269,9 +277,45 @@ def clear_everything():
         deleted_count = 0
         cleared_count = 0
         
+        # First, clear the search engine's collection references directly
+        st.info("🎯 Clearing search engine collection data directly...")
+        
+        for coll_name, coll_ref in collection_refs.items():
+            try:
+                if coll_ref:
+                    # Get all items first
+                    items = coll_ref.get()
+                    count = len(items['ids']) if items and 'ids' in items else 0
+                    
+                    if count > 0:
+                        st.info(f"📋 SearchEngine {coll_name} has {count} items")
+                        
+                        # Delete all items from this collection
+                        if items['ids']:
+                            coll_ref.delete(ids=items['ids'])
+                            st.success(f"🗑️ Cleared {count} items from SearchEngine {coll_name}")
+                            deleted_count += 1
+                        
+                        # Verify it's empty
+                        remaining = coll_ref.get()
+                        remaining_count = len(remaining['ids']) if remaining and 'ids' in remaining else 0
+                        if remaining_count == 0:
+                            st.success(f"✅ SearchEngine {coll_name} is now empty")
+                        else:
+                            st.error(f"❌ SearchEngine {coll_name} still has {remaining_count} items!")
+                    else:
+                        st.info(f"📭 SearchEngine {coll_name} was already empty")
+                        
+            except Exception as e:
+                st.error(f"❌ Failed to clear SearchEngine {coll_name}: {str(e)}")
+                st.code(f"Error: {str(e)}")
+        
+        # Also try to delete collections by name (legacy approach)
+        st.info("🔄 Also trying collection deletion by name...")
+        
         for collection_name in collections_to_delete:
             try:
-                # First, try to delete the collection completely
+                # Try to delete the collection completely
                 try:
                     collection = chromadb_client.get_collection(collection_name)
                     items = collection.get()
@@ -279,20 +323,8 @@ def clear_everything():
                     
                     if count > 0:
                         st.info(f"📋 Found {collection_name} with {count} items")
-                        st.code(f"Sample IDs: {items['ids'][:3] if items['ids'] else 'None'}")
-                        
-                        # Actually delete the collection
                         chromadb_client.delete_collection(collection_name)
                         st.success(f"🗑️ Deleted {collection_name} collection")
-                        deleted_count += 1
-                        
-                        # Verify deletion worked
-                        try:
-                            chromadb_client.get_collection(collection_name)
-                            st.error(f"❌ {collection_name} still exists after deletion!")
-                        except:
-                            st.success(f"✅ {collection_name} successfully deleted")
-                            
                     else:
                         st.info(f"📭 Collection {collection_name} was already empty")
                         
@@ -301,24 +333,6 @@ def clear_everything():
                         st.info(f"ℹ️ Collection {collection_name} didn't exist")
                     else:
                         st.warning(f"⚠️ Could not delete {collection_name}: {str(e)}")
-                        st.code(f"Error details: {str(e)}")
-                
-                # Now, since SearchEngine will recreate it, get the new empty one and verify it's empty
-                try:
-                    new_collection = chromadb_client.get_or_create_collection(collection_name)
-                    new_items = new_collection.get()
-                    remaining_count = len(new_items['ids']) if new_items and 'ids' in new_items else 0
-                    
-                    if remaining_count == 0:
-                        st.success(f"✅ {collection_name} is now empty")
-                        cleared_count += 1
-                    else:
-                        st.error(f"❌ {collection_name} still has {remaining_count} items!")
-                        st.code(f"Remaining IDs: {new_items['ids'][:3] if new_items and new_items['ids'] else 'None'}")
-                        
-                except Exception as e:
-                    st.warning(f"⚠️ Could not verify {collection_name}: {str(e)}")
-                    st.code(f"Verification error: {str(e)}")
                     
             except Exception as e:
                 st.error(f"❌ Failed to process {collection_name}: {str(e)}")

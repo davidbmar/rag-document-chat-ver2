@@ -1,29 +1,20 @@
 #!/usr/bin/env python3
 """
 Enhanced RAG Document Processing with Chunk Summaries and Better Indexing
+This file is deprecated. Use text_processing.py instead.
 """
 
-import re
-import hashlib
-from typing import Dict, List, Tuple, Optional
-from dataclasses import dataclass
+# This file has been refactored into separate modules:
+# - models.py for data structures
+# - text_processing.py for processing logic
+# - clients.py for external service management
 
-@dataclass
-class ChunkMetadata:
-    """Enhanced metadata for document chunks"""
-    filename: str
-    chunk_index: int
-    total_chunks: int
-    chunk_size: int
-    chunk_summary: str
-    page_number: Optional[int]
-    section_title: Optional[str]
-    start_char: int
-    end_char: int
-    paragraph_number: int
-    content_type: str
-    key_terms: List[str]
-    chunk_hash: str
+import warnings
+warnings.warn(
+    "enhanced_rag_processing.py is deprecated. Use the refactored modules instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 class EnhancedDocumentProcessor:
     """Enhanced document processor with better chunk metadata"""

@@ -97,3 +97,18 @@ dmypy.json
 # Test files
 test_documents/
 sample_docs/
+alice.txt
+test_simple.txt
+
+# Documentation drafts
+*_REFACTOR.md
+*_DRAFT.md
+
+# Backup files
+*.bak
+app.py.backup
+*_backup.py
+
+# Local configuration overrides
+config_local.py
+settings_local.py

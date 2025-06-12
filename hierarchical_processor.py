@@ -9,41 +9,17 @@ import time
 import re
 import logging
 from typing import List, Dict, Tuple, Optional
-from dataclasses import dataclass
-import nltk
+try:
+    import nltk
+    NLTK_AVAILABLE = True
+except ImportError:
+    NLTK_AVAILABLE = False
+    nltk = None
+
+from models import LogicalGroup, CompressedGroup, HierarchicalResult, ChatResponse
+from clients import ClientManager
 
 logger = logging.getLogger(__name__)
-
-@dataclass
-class LogicalGroup:
-    """A group of sentences that represent a single logical idea"""
-    group_id: str
-    sentences: List[str]
-    combined_text: str
-    topic_indicators: List[str]
-    word_count: int
-    coherence_score: float
-
-@dataclass
-class CompressedGroup:
-    """A logical group with its compressed summary"""
-    original_group: LogicalGroup
-    summary: str
-    compression_ratio: float
-    strategy_used: str
-    processing_time: float
-
-@dataclass
-class HierarchicalResult:
-    """Result of hierarchical processing"""
-    status: str
-    message: str
-    filename: str
-    logical_groups_created: int
-    summaries_created: int
-    total_processing_time: float
-    compression_stats: Dict
-    groups: List[CompressedGroup]
 
 class SemanticSentenceGrouper:
     """Groups sentences into logical idea units"""
@@ -61,7 +37,11 @@ class SemanticSentenceGrouper:
     
     def split_into_sentences(self, text: str) -> List[str]:
         """Split text into clean sentences"""
-        sentences = nltk.sent_tokenize(text)
+        if NLTK_AVAILABLE:
+            sentences = nltk.sent_tokenize(text)
+        else:
+            # Simple fallback
+            sentences = [s.strip() for s in text.split('.') if s.strip()]
         clean_sentences = []
         
         for sentence in sentences:
@@ -182,15 +162,10 @@ class AdaptiveCompressor:
         """Choose compression strategy based on content"""
         text_lower = text.lower()
         
-        # Technical content - lighter compression
         if any(indicator in text_lower for indicator in ['steps', 'procedure', 'method', 'process']):
             return 'detailed'  # 8:1 ratio
-        
-        # Lists and specific info - balanced
         elif any(indicator in text_lower for indicator in ['list', 'including', 'such as']):
             return 'balanced'  # 10:1 ratio
-        
-        # Narrative - can be more aggressive
         else:
             return 'balanced'  # Default 10:1
     
@@ -240,21 +215,22 @@ class AdaptiveCompressor:
         Compressed summary ({target_length} words):"""
         
         try:
-            response = await asyncio.to_thread(
-                self.openai_client.chat.completions.create,
-                model="gpt-3.5-turbo",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": f"You are an expert at creating {target_length}-word summaries that preserve essential information for search."
-                    },
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1,
-                max_tokens=target_length * 3
+            messages = [
+                {
+                    "role": "system",
+                    "content": f"You are an expert at creating {target_length}-word summaries that preserve essential information for search."
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response_text = await asyncio.to_thread(
+                self.openai_client.generate_response,
+                messages,
+                0.1,
+                target_length * 3
             )
             
-            summary = response.choices[0].message.content.strip()
+            summary = response_text.strip()
             summary_words = len(summary.split())
             compression_ratio = group.word_count / summary_words if summary_words > 0 else 1.0
             
@@ -283,20 +259,21 @@ class AdaptiveCompressor:
 class HierarchicalProcessor:
     """Main processor that coordinates grouping and compression"""
     
-    def __init__(self, rag_system):
-        self.rag_system = rag_system
+    def __init__(self, client_manager: ClientManager):
+        self.clients = client_manager
         self.grouper = SemanticSentenceGrouper()
-        self.compressor = AdaptiveCompressor(rag_system.openai_client)
+        self.compressor = AdaptiveCompressor(client_manager.openai)
         
-        # Create collection for summaries
-        try:
-            self.summary_collection = self.rag_system.chroma_client.get_or_create_collection(
-                name="logical_summaries",
-                metadata={"description": "10:1 compressed summaries of logical groups"}
-            )
-        except Exception as e:
-            logger.error(f"Failed to create summary collection: {e}")
-            self.summary_collection = None
+        # Get collections
+        self.document_collection = self.clients.chromadb.get_or_create_collection(
+            "documents",
+            {"description": "RAG document collection"}
+        )
+        
+        self.summary_collection = self.clients.chromadb.get_or_create_collection(
+            "logical_summaries",
+            {"description": "10:1 compressed summaries of logical groups"}
+        )
     
     async def process_document_hierarchically(self, filename: str) -> HierarchicalResult:
         """Process an already-uploaded document with hierarchical compression"""
@@ -305,7 +282,6 @@ class HierarchicalProcessor:
         try:
             logger.info(f"🧠 Starting hierarchical processing for: {filename}")
             
-            # Get the original document text from ChromaDB
             text = await self.get_document_text(filename)
             if not text:
                 return HierarchicalResult(
@@ -378,10 +354,9 @@ class HierarchicalProcessor:
     async def get_document_text(self, filename: str) -> Optional[str]:
         """Retrieve original document text from ChromaDB chunks"""
         try:
-            # Query all chunks for this document using get() instead of query()
-            results = self.rag_system.collection.get(
+            results = self.document_collection.get(
                 where={"filename": filename},
-                limit=2000  # Get all chunks
+                limit=2000
             )
             
             if not results['documents']:
@@ -413,8 +388,7 @@ class HierarchicalProcessor:
         
         try:
             for compressed in compressed_groups:
-                # Generate embedding for summary
-                embedding = self.rag_system.get_embedding(compressed.summary)
+                embedding = self.clients.openai.get_embedding(compressed.summary)
                 
                 self.summary_collection.add(
                     ids=[f"{filename}_{compressed.original_group.group_id}"],
@@ -437,58 +411,10 @@ class HierarchicalProcessor:
         
         return stored_count
     
-    def search_with_summaries(self, query: str, top_k_summaries: int = 5, top_k_chunks: int = 3):
+    def search_with_summaries(self, query: str, top_k_summaries: int = 5, top_k_chunks: int = 3) -> ChatResponse:
         """Search using both summaries and original chunks"""
         
-        # Get original chunk search
-        chunk_response = self.rag_system.search_and_answer(query, top_k_chunks)
+        from search_engine import SearchEngine
+        search_engine = SearchEngine(self.clients)
         
-        if not self.summary_collection:
-            return chunk_response
-        
-        try:
-            # Search summaries
-            query_embedding = self.rag_system.get_embedding(query)
-            summary_results = self.summary_collection.query(
-                query_embeddings=[query_embedding],
-                n_results=top_k_summaries
-            )
-            
-            if summary_results['documents'][0]:
-                # Combine contexts
-                chunk_context = "\n\n".join(chunk_response.sources)
-                summary_context = "\n\n".join([
-                    f"Summary: {doc}" for doc in summary_results['documents'][0]
-                ])
-                
-                combined_context = f"Detailed Chunks:\n{chunk_context}\n\nLogical Summaries:\n{summary_context}"
-                
-                # Generate enhanced answer
-                response = self.rag_system.openai_client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "Use both detailed chunks and logical summaries to provide comprehensive answers. Summaries give broader context, chunks provide specific details."
-                        },
-                        {
-                            "role": "user",
-                            "content": f"Context:\n{combined_context}\n\nQuestion: {query}\n\nAnswer:"
-                        }
-                    ],
-                    temperature=0.1,
-                    max_tokens=1000
-                )
-                
-                # Return enhanced response
-                from app import ChatResponse
-                return ChatResponse(
-                    answer=response.choices[0].message.content,
-                    sources=chunk_response.sources + [f"Summary: {meta['filename']}" for meta in summary_results['metadatas'][0]],
-                    processing_time=chunk_response.processing_time
-                )
-        
-        except Exception as e:
-            logger.warning(f"Summary search failed: {e}")
-        
-        return chunk_response
+        return search_engine.search_enhanced(query, top_k_chunks, use_summaries=True)

@@ -384,6 +384,21 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                 # Get conversation context for continuity
                 conversation_context = get_conversation_context()
                 
+                # DEBUG: Check what collections actually exist and have data
+                try:
+                    chromadb_client = rag_system.clients.chromadb
+                    debug_info = []
+                    for coll_name in ["documents", "logical_summaries", "paragraph_summaries"]:
+                        try:
+                            coll = chromadb_client.get_collection(coll_name)
+                            count = len(coll.get()['ids'])
+                            debug_info.append(f"{coll_name}:{count}")
+                        except:
+                            debug_info.append(f"{coll_name}:missing")
+                    st.caption(f"🔍 DEBUG: Collections before search: {', '.join(debug_info)}")
+                except Exception as e:
+                    st.caption(f"🔍 DEBUG: Could not check collections: {e}")
+                
                 if has_paragraphs:
                     response = rag_system.search_with_paragraphs(prompt, top_k_paragraphs=3, top_k_chunks=5, conversation_history=conversation_context)
                     st.caption("📝 Using paragraph context + detailed chunks + conversation history")

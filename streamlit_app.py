@@ -243,7 +243,7 @@ def clear_chat_history():
 def clear_everything():
     """Clear all data: chat, documents, vectors, S3 files"""
     try:
-        st.info("🚀 Starting Clear Everything operation...")
+        st.info("🚀 Starting COMPREHENSIVE Clear Everything operation...")
         
         # Clear session data
         st.session_state.messages = []
@@ -253,96 +253,92 @@ def clear_everything():
         
         st.info("🧹 Cleared session data")
         
-        # Clear ChromaDB collections - use the SAME method as search engine
+        # Get current RAG system and clients
         rag_system = st.session_state.rag_system
         chromadb_client = rag_system.clients.chromadb
         
-        # Get the actual collection objects the search engine uses
-        collection_refs = {
-            "documents": rag_system.search_engine.document_collection,
-            "logical_summaries": rag_system.search_engine.summary_collection, 
-            "paragraph_summaries": rag_system.search_engine.paragraph_collection
-        }
+        # STEP 1: List ALL collections that exist
+        st.info("🔍 Step 1: Discovering all existing collections...")
+        all_existing_collections = []
+        try:
+            collections = chromadb_client.list_collections()
+            all_existing_collections = [col.name for col in collections]
+            st.info(f"📋 Found collections: {all_existing_collections}")
+        except Exception as e:
+            st.error(f"❌ Could not list collections: {e}")
         
-        # Also check for collections by name
-        collections_to_delete = [
-            "documents", 
-            "logical_summaries", 
-            "paragraph_summaries",
-            "original_texts"
-        ]
+        # STEP 2: Delete ALL collections completely (not just their contents)
+        st.info("🗑️ Step 2: Deleting ALL collections completely...")
+        deleted_collections = []
         
-        # The problem: SearchEngine uses get_or_create_collection() which recreates them!
-        # Solution: Delete collections AND clear all data from recreated ones
-        deleted_count = 0
-        cleared_count = 0
-        
-        # First, clear the search engine's collection references directly
-        st.info("🎯 Clearing search engine collection data directly...")
-        
-        for coll_name, coll_ref in collection_refs.items():
+        for collection_name in all_existing_collections:
             try:
-                if coll_ref:
-                    # Get all items first
-                    items = coll_ref.get()
-                    count = len(items['ids']) if items and 'ids' in items else 0
-                    
-                    if count > 0:
-                        st.info(f"📋 SearchEngine {coll_name} has {count} items")
-                        
-                        # Delete all items from this collection
-                        if items['ids']:
-                            coll_ref.delete(ids=items['ids'])
-                            st.success(f"🗑️ Cleared {count} items from SearchEngine {coll_name}")
-                            deleted_count += 1
-                        
-                        # Verify it's empty
-                        remaining = coll_ref.get()
-                        remaining_count = len(remaining['ids']) if remaining and 'ids' in remaining else 0
-                        if remaining_count == 0:
-                            st.success(f"✅ SearchEngine {coll_name} is now empty")
-                        else:
-                            st.error(f"❌ SearchEngine {coll_name} still has {remaining_count} items!")
-                    else:
-                        st.info(f"📭 SearchEngine {coll_name} was already empty")
-                        
+                # Get collection info first
+                collection = chromadb_client.get_collection(collection_name)
+                items = collection.get()
+                count = len(items['ids']) if items and 'ids' in items else 0
+                
+                st.info(f"🗑️ Deleting collection '{collection_name}' ({count} items)")
+                
+                # Delete the entire collection
+                chromadb_client.delete_collection(collection_name)
+                deleted_collections.append(collection_name)
+                st.success(f"✅ Deleted collection '{collection_name}'")
+                
             except Exception as e:
-                st.error(f"❌ Failed to clear SearchEngine {coll_name}: {str(e)}")
-                st.code(f"Error: {str(e)}")
+                st.error(f"❌ Failed to delete collection '{collection_name}': {e}")
         
-        # Also try to delete collections by name (legacy approach)
-        st.info("🔄 Also trying collection deletion by name...")
+        # STEP 3: Verify all collections are gone
+        st.info("✅ Step 3: Verifying collections are deleted...")
+        try:
+            remaining_collections = chromadb_client.list_collections()
+            remaining_names = [col.name for col in remaining_collections]
+            
+            if remaining_names:
+                st.warning(f"⚠️ Some collections still exist: {remaining_names}")
+            else:
+                st.success("✅ All collections successfully deleted")
+        except Exception as e:
+            st.error(f"❌ Could not verify deletion: {e}")
         
-        for collection_name in collections_to_delete:
-            try:
-                # Try to delete the collection completely
+        # STEP 4: Force restart ChromaDB to ensure clean state
+        st.info("🔄 Step 4: Restarting ChromaDB for clean state...")
+        
+        try:
+            import subprocess
+            import time
+            
+            # Stop ChromaDB
+            subprocess.run(["docker", "stop", "rag_chromadb"], check=True, capture_output=True)
+            st.info("🛑 ChromaDB stopped")
+            
+            time.sleep(2)
+            
+            # Start ChromaDB
+            subprocess.run(["docker", "start", "rag_chromadb"], check=True, capture_output=True)
+            st.info("🚀 ChromaDB started")
+            
+            # Wait for it to be ready
+            st.info("⏳ Waiting for ChromaDB to be ready...")
+            for i in range(15):  # Wait up to 30 seconds
                 try:
-                    collection = chromadb_client.get_collection(collection_name)
-                    items = collection.get()
-                    count = len(items['ids']) if items and 'ids' in items else 0
+                    # Test ChromaDB connectivity
+                    import requests
+                    response = requests.get("http://localhost:8002/api/v2/heartbeat", timeout=2)
+                    if response.status_code == 200:
+                        st.success("✅ ChromaDB is ready")
+                        break
+                except:
+                    time.sleep(2)
                     
-                    if count > 0:
-                        st.info(f"📋 Found {collection_name} with {count} items")
-                        chromadb_client.delete_collection(collection_name)
-                        st.success(f"🗑️ Deleted {collection_name} collection")
-                    else:
-                        st.info(f"📭 Collection {collection_name} was already empty")
-                        
-                except Exception as e:
-                    if "does not exist" in str(e).lower():
-                        st.info(f"ℹ️ Collection {collection_name} didn't exist")
-                    else:
-                        st.warning(f"⚠️ Could not delete {collection_name}: {str(e)}")
-                    
-            except Exception as e:
-                st.error(f"❌ Failed to process {collection_name}: {str(e)}")
+            if i == 14:  # If we went through all attempts
+                st.warning("⚠️ ChromaDB may not be fully ready yet")
+            
+        except Exception as docker_e:
+            st.warning(f"⚠️ Could not restart ChromaDB: {docker_e}")
         
-        if deleted_count > 0 or cleared_count > 0:
-            st.success(f"🧹 Processed {deleted_count + cleared_count} ChromaDB collections")
-        else:
-            st.info("📭 No ChromaDB collections to process")
-        
-        # Clear S3 files (if configured)
+        # STEP 5: Clear S3 files (if configured)
+        st.info("☁️ Step 5: Clearing S3 files...")
         try:
             if hasattr(rag_system.clients, 's3') and rag_system.clients.s3:
                 from config import config
@@ -359,7 +355,7 @@ def clear_everything():
                                 Bucket=bucket,
                                 Delete={'Objects': objects_to_delete}
                             )
-                            st.info(f"🗑️ Deleted {len(objects_to_delete)} files from S3")
+                            st.success(f"🗑️ Deleted {len(objects_to_delete)} files from S3")
                         else:
                             st.info("📁 S3 bucket was already empty")
                     else:
@@ -367,20 +363,64 @@ def clear_everything():
         except Exception as e:
             st.warning(f"⚠️ Could not clear S3 files: {str(e)}")
         
-        # Force reinitialize RAG system to clear collection references
+        # STEP 6: Force reinitialize RAG system with fresh ChromaDB
+        st.info("🔄 Step 6: Reinitializing RAG system...")
         try:
-            st.info("🔄 Reinitializing RAG system...")
+            # Clear all session state except messages (to show this progress)
+            keys_to_keep = ['messages']
+            for key in list(st.session_state.keys()):
+                if key not in keys_to_keep:
+                    del st.session_state[key]
+            
+            # Force reload modules to ensure fresh state
+            import importlib
+            import rag_system
+            importlib.reload(rag_system)
+            
+            # Create fresh RAG system
             from rag_system import RAGSystem
             st.session_state.rag_system = RAGSystem()
-            st.success("✅ RAG system reinitialized")
+            
+            # Initialize empty conversation history
+            st.session_state.conversation_history = []
+            
+            st.success("✅ RAG system reinitialized with fresh ChromaDB")
+            
         except Exception as e:
-            st.warning(f"⚠️ Could not reinitialize RAG system: {str(e)}")
+            st.error(f"❌ Could not reinitialize RAG system: {str(e)}")
         
-        st.success("🧹 Everything cleared! System reset to fresh state.")
+        # STEP 7: Final verification
+        st.info("🔍 Step 7: Final verification...")
+        try:
+            new_rag_system = st.session_state.rag_system
+            new_chromadb_client = new_rag_system.clients.chromadb
+            
+            final_collections = new_chromadb_client.list_collections()
+            final_names = [col.name for col in final_collections]
+            
+            if final_names:
+                st.warning(f"⚠️ Some collections were recreated: {final_names}")
+                # Check if they have data
+                for name in final_names:
+                    try:
+                        coll = new_chromadb_client.get_collection(name)
+                        count = len(coll.get()['ids'])
+                        st.info(f"📊 Collection '{name}': {count} items")
+                    except:
+                        pass
+            else:
+                st.success("✅ No collections exist - clean state achieved")
+                
+        except Exception as e:
+            st.warning(f"⚠️ Could not verify final state: {e}")
+        
+        st.success("💥 COMPREHENSIVE CLEAR COMPLETE! System completely reset.")
+        st.info("🔄 Please refresh the page to ensure all changes take effect.")
         st.rerun()
         
     except Exception as e:
-        st.error(f"❌ Error during cleanup: {str(e)}")
+        st.error(f"❌ Error during comprehensive cleanup: {str(e)}")
+        st.code(f"Error details: {str(e)}")
 
 # Display chat history
 for message in st.session_state.messages:
@@ -429,13 +469,35 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                 # Get conversation context for continuity
                 conversation_context = get_conversation_context()
                 
-                # DEBUG: Check what collections actually exist and have data
+                # COMPREHENSIVE DEBUG: Check ALL possible data sources
                 try:
                     chromadb_client = rag_system.clients.chromadb
                     debug_info = []
                     total_items = 0
                     
-                    for coll_name in ["documents", "logical_summaries", "paragraph_summaries", "original_texts"]:
+                    # Check if we're using the SAME ChromaDB client instance
+                    st.caption(f"🔍 CLIENT DEBUG: ChromaDB client ID: {id(chromadb_client)}")
+                    st.caption(f"🔍 CLIENT DEBUG: SearchEngine client ID: {id(rag_system.search_engine.clients.chromadb)}")
+                    
+                    # Check all possible collection names that might exist
+                    all_possible_collections = ["documents", "logical_summaries", "paragraph_summaries", "original_texts"]
+                    
+                    # First, list ALL collections that actually exist in ChromaDB
+                    try:
+                        all_collections = chromadb_client.list_collections()
+                        existing_collection_names = [col.name for col in all_collections]
+                        st.caption(f"🔍 ALL COLLECTIONS: {existing_collection_names}")
+                        
+                        # Add any unknown collections to our check list
+                        for name in existing_collection_names:
+                            if name not in all_possible_collections:
+                                all_possible_collections.append(name)
+                                
+                    except Exception as e:
+                        st.caption(f"🔍 LIST COLLECTIONS ERROR: {e}")
+                    
+                    # Now check each collection thoroughly
+                    for coll_name in all_possible_collections:
                         try:
                             coll = chromadb_client.get_collection(coll_name)
                             items = coll.get()
@@ -445,7 +507,7 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                             
                             # Show sample IDs and metadata if any exist
                             if count > 0 and items['ids']:
-                                sample_ids = items['ids'][:2]  # First 2 IDs
+                                sample_ids = items['ids'][:3]  # First 3 IDs
                                 debug_info.append(f"  └─ IDs: {sample_ids}")
                                 
                                 # Show metadata to see where data comes from
@@ -453,16 +515,59 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                                     sample_meta = items['metadatas'][:2]
                                     debug_info.append(f"  └─ Meta: {sample_meta}")
                                 
+                                # Look for alice.txt specifically
+                                alice_count = 0
+                                for meta in items['metadatas']:
+                                    if 'filename' in meta and 'alice' in meta['filename'].lower():
+                                        alice_count += 1
+                                if alice_count > 0:
+                                    debug_info.append(f"  └─ ⚠️ ALICE DATA FOUND: {alice_count} items!")
+                                
                                 # Show sample documents
                                 if 'documents' in items and items['documents']:
                                     sample_docs = [doc[:50] + "..." if len(doc) > 50 else doc for doc in items['documents'][:2]]
                                     debug_info.append(f"  └─ Docs: {sample_docs}")
                                 
                         except Exception as e:
-                            debug_info.append(f"{coll_name}:ERROR({str(e)[:30]})")
+                            if "does not exist" not in str(e).lower():
+                                debug_info.append(f"{coll_name}:ERROR({str(e)[:30]})")
+                    
+                    # Also check the SearchEngine's collection references directly
+                    try:
+                        se_doc_count = len(rag_system.search_engine.document_collection.get()['ids'])
+                        se_sum_count = len(rag_system.search_engine.summary_collection.get()['ids']) 
+                        se_par_count = len(rag_system.search_engine.paragraph_collection.get()['ids'])
+                        
+                        debug_info.append(f"SearchEngine.document_collection:{se_doc_count}")
+                        debug_info.append(f"SearchEngine.summary_collection:{se_sum_count}")  
+                        debug_info.append(f"SearchEngine.paragraph_collection:{se_par_count}")
+                        
+                        total_items += se_doc_count + se_sum_count + se_par_count
+                        
+                    except Exception as e:
+                        debug_info.append(f"SearchEngine collections:ERROR({str(e)[:30]})")
                     
                     st.caption(f"🔍 DEBUG: Total items across all collections: {total_items}")
                     st.caption(f"🔍 DEBUG: {chr(10).join(debug_info)}")
+                    
+                    # CRITICAL: Test if we can actually search and find alice data
+                    try:
+                        test_embedding = rag_system.clients.openai.get_embedding("alice")
+                        test_results = rag_system.search_engine.document_collection.query(
+                            query_embeddings=[test_embedding],
+                            n_results=3
+                        )
+                        
+                        if test_results['documents'][0]:
+                            st.caption(f"🔍 SEARCH TEST: Found {len(test_results['documents'][0])} results for 'alice'")
+                            if test_results['metadatas'][0]:
+                                alice_files = [meta.get('filename', 'unknown') for meta in test_results['metadatas'][0]]
+                                st.caption(f"🔍 SEARCH TEST: Files found: {alice_files}")
+                        else:
+                            st.caption("🔍 SEARCH TEST: No results found for 'alice'")
+                            
+                    except Exception as e:
+                        st.caption(f"🔍 SEARCH TEST ERROR: {e}")
                     
                 except Exception as e:
                     st.caption(f"🔍 DEBUG: Could not check collections: {e}")
@@ -575,6 +680,43 @@ with st.sidebar:
     # Clear Everything section
     st.divider()
     st.subheader("🗑️ System Reset")
+    
+    # Manual collection wipe button for debugging
+    if st.button("🔧 Manual Collection Wipe (Debug)", help="Manually wipe all collection data for debugging"):
+        try:
+            rag_system = st.session_state.rag_system
+            
+            # Get and wipe each collection directly
+            collections_to_wipe = ["documents", "logical_summaries", "paragraph_summaries", "original_texts"]
+            
+            for coll_name in collections_to_wipe:
+                try:
+                    # Get collection
+                    coll = rag_system.clients.chromadb.get_or_create_collection(coll_name)
+                    
+                    # Get all items
+                    items = coll.get()
+                    count = len(items['ids']) if items and 'ids' in items else 0
+                    
+                    if count > 0:
+                        st.info(f"🔧 Manual wipe: {coll_name} has {count} items")
+                        
+                        # Delete all items
+                        coll.delete(ids=items['ids'])
+                        st.success(f"🗑️ Manually wiped {count} items from {coll_name}")
+                        
+                        # Verify
+                        remaining = coll.get()
+                        remaining_count = len(remaining['ids']) if remaining and 'ids' in remaining else 0
+                        st.info(f"✅ {coll_name} now has {remaining_count} items")
+                    else:
+                        st.info(f"📭 {coll_name} was already empty")
+                        
+                except Exception as e:
+                    st.error(f"❌ Failed to wipe {coll_name}: {str(e)}")
+                    
+        except Exception as e:
+            st.error(f"❌ Manual wipe failed: {str(e)}")
     
     # Debug info - show current collections
     try:

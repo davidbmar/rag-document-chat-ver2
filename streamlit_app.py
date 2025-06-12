@@ -394,15 +394,23 @@ if prompt := st.chat_input("Ask a question about your documents..."):
             try:
                 try:
                     summary_collection = rag_system.clients.chromadb.get_or_create_collection("logical_summaries")
-                    has_summaries = len(summary_collection.get()['ids']) > 0
-                except:
+                    summary_items = summary_collection.get()
+                    summary_count = len(summary_items['ids']) if summary_items and 'ids' in summary_items else 0
+                    has_summaries = summary_count > 0
+                    st.caption(f"🔍 SUMMARY CHECK: {summary_count} items, has_summaries={has_summaries}")
+                except Exception as e:
                     has_summaries = False
+                    st.caption(f"🔍 SUMMARY CHECK: ERROR - {str(e)[:50]}")
                 
                 try:
                     paragraph_collection = rag_system.clients.chromadb.get_or_create_collection("paragraph_summaries")
-                    has_paragraphs = len(paragraph_collection.get()['ids']) > 0
-                except:
+                    paragraph_items = paragraph_collection.get()
+                    paragraph_count = len(paragraph_items['ids']) if paragraph_items and 'ids' in paragraph_items else 0
+                    has_paragraphs = paragraph_count > 0
+                    st.caption(f"🔍 PARAGRAPH CHECK: {paragraph_count} items, has_paragraphs={has_paragraphs}")
+                except Exception as e:
                     has_paragraphs = False
+                    st.caption(f"🔍 PARAGRAPH CHECK: ERROR - {str(e)[:50]}")
                 
                 # Get conversation context for continuity
                 conversation_context = get_conversation_context()
@@ -421,10 +429,20 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                             debug_info.append(f"{coll_name}:{count}")
                             total_items += count
                             
-                            # Show sample IDs if any exist
+                            # Show sample IDs and metadata if any exist
                             if count > 0 and items['ids']:
                                 sample_ids = items['ids'][:2]  # First 2 IDs
-                                debug_info.append(f"  └─ samples: {sample_ids}")
+                                debug_info.append(f"  └─ IDs: {sample_ids}")
+                                
+                                # Show metadata to see where data comes from
+                                if 'metadatas' in items and items['metadatas']:
+                                    sample_meta = items['metadatas'][:2]
+                                    debug_info.append(f"  └─ Meta: {sample_meta}")
+                                
+                                # Show sample documents
+                                if 'documents' in items and items['documents']:
+                                    sample_docs = [doc[:50] + "..." if len(doc) > 50 else doc for doc in items['documents'][:2]]
+                                    debug_info.append(f"  └─ Docs: {sample_docs}")
                                 
                         except Exception as e:
                             debug_info.append(f"{coll_name}:ERROR({str(e)[:30]})")
@@ -435,15 +453,26 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                 except Exception as e:
                     st.caption(f"🔍 DEBUG: Could not check collections: {e}")
                 
+                # CRITICAL DEBUG: Check which search path we're taking
+                st.caption(f"🔍 SEARCH DEBUG: has_paragraphs={has_paragraphs}, has_summaries={has_summaries}")
+                
                 if has_paragraphs:
+                    st.caption("🔍 TAKING PARAGRAPH SEARCH PATH")
                     response = rag_system.search_with_paragraphs(prompt, top_k_paragraphs=3, top_k_chunks=5, conversation_history=conversation_context)
                     st.caption("📝 Using paragraph context + detailed chunks + conversation history")
                 elif has_summaries:
+                    st.caption("🔍 TAKING ENHANCED SEARCH PATH")
                     response = rag_system.search_enhanced(prompt, top_k=8, use_summaries=True, conversation_history=conversation_context)
                     st.caption("🧠 Using smart summaries + detailed chunks + conversation history")
                 else:
+                    st.caption("🔍 TAKING BASIC SEARCH PATH")
                     response = rag_system.search_and_answer(prompt, top_k=8, conversation_history=conversation_context)
                     st.caption("📄 Using basic chunks + conversation history")
+                
+                # DEBUG: Show response details
+                st.caption(f"🔍 RESPONSE DEBUG: Answer length={len(response.answer)}, Sources count={len(response.sources)}")
+                if response.sources:
+                    st.caption(f"🔍 SOURCE DEBUG: {response.sources}")
                 
                 # Display answer
                 st.markdown(response.answer)

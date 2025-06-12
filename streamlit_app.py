@@ -204,6 +204,33 @@ st.header("💬 Chat with Your Documents")
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+# Initialize conversation history for context (last 15 messages)
+if "conversation_history" not in st.session_state:
+    st.session_state.conversation_history = []
+
+def add_to_conversation_history(user_message: str, assistant_response: str):
+    """Add a conversation turn to history, maintaining max 15 messages (7-8 turns)"""
+    st.session_state.conversation_history.append({
+        "user": user_message,
+        "assistant": assistant_response
+    })
+    
+    # Keep only last 15 messages (roughly 7-8 conversation turns)
+    if len(st.session_state.conversation_history) > 7:
+        st.session_state.conversation_history = st.session_state.conversation_history[-7:]
+
+def get_conversation_context() -> str:
+    """Format conversation history for inclusion in context"""
+    if not st.session_state.conversation_history:
+        return ""
+    
+    context_parts = []
+    for i, turn in enumerate(st.session_state.conversation_history, 1):
+        context_parts.append(f"Previous Q{i}: {turn['user']}")
+        context_parts.append(f"Previous A{i}: {turn['assistant']}")
+    
+    return "\n".join(context_parts)
+
 # Display chat history
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
@@ -240,15 +267,18 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                 except:
                     has_paragraphs = False
                 
+                # Get conversation context for continuity
+                conversation_context = get_conversation_context()
+                
                 if has_paragraphs:
-                    response = rag_system.search_with_paragraphs(prompt, top_k_paragraphs=3, top_k_chunks=5)
-                    st.caption("📝 Using paragraph context + detailed chunks")
+                    response = rag_system.search_with_paragraphs(prompt, top_k_paragraphs=3, top_k_chunks=5, conversation_history=conversation_context)
+                    st.caption("📝 Using paragraph context + detailed chunks + conversation history")
                 elif has_summaries:
-                    response = rag_system.search_enhanced(prompt, top_k=8, use_summaries=True)
-                    st.caption("🧠 Using smart summaries + detailed chunks")
+                    response = rag_system.search_enhanced(prompt, top_k=8, use_summaries=True, conversation_history=conversation_context)
+                    st.caption("🧠 Using smart summaries + detailed chunks + conversation history")
                 else:
-                    response = rag_system.search_and_answer(prompt, top_k=8)
-                    st.caption("📄 Using basic chunks only")
+                    response = rag_system.search_and_answer(prompt, top_k=8, conversation_history=conversation_context)
+                    st.caption("📄 Using basic chunks + conversation history")
                 
                 # Display answer
                 st.markdown(response.answer)
@@ -259,6 +289,9 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                     "content": response.answer,
                     "sources": response.sources
                 })
+                
+                # Add to conversation history for context
+                add_to_conversation_history(prompt, response.answer)
                 
                 # Show sources
                 if response.sources:
@@ -282,6 +315,9 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                     "content": error_msg,
                     "sources": []
                 })
+                
+                # Add error to conversation history too
+                add_to_conversation_history(prompt, error_msg)
 
 # Sidebar with system status
 with st.sidebar:
@@ -305,3 +341,21 @@ with st.sidebar:
     else:
         st.success("🚀 Production Mode - OpenAI API Active")
         st.markdown("Using real OpenAI GPT models for responses.")
+    
+    # Show conversation history status
+    st.divider()
+    st.subheader("💭 Conversation Memory")
+    
+    history_count = len(st.session_state.conversation_history)
+    if history_count > 0:
+        st.success(f"📚 {history_count} conversation turns stored")
+        st.caption("Last 7 turns kept for context")
+        
+        with st.expander("View History", expanded=False):
+            for i, turn in enumerate(st.session_state.conversation_history, 1):
+                st.text(f"Q{i}: {turn['user'][:50]}...")
+                st.text(f"A{i}: {turn['assistant'][:50]}...")
+                st.divider()
+    else:
+        st.info("💭 No conversation history yet")
+        st.caption("Start chatting to build context")

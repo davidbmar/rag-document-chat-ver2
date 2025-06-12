@@ -35,7 +35,7 @@ class SearchEngine:
             {"description": "Paragraph-level summaries for wider context search"}
         )
     
-    def search_and_answer(self, query: str, top_k: int = 3) -> ChatResponse:
+    def search_and_answer(self, query: str, top_k: int = 3, conversation_history: str = "") -> ChatResponse:
         """Search documents and generate answer using RAG"""
         start_time = time.time()
         
@@ -65,8 +65,8 @@ class SearchEngine:
             
             logger.info(f"📚 Found {len(context_chunks)} relevant chunks from {len(set(sources))} documents")
             
-            # Generate answer
-            answer = self._generate_answer(query, context)
+            # Generate answer with conversation history
+            answer = self._generate_answer(query, context, conversation_history)
             processing_time = time.time() - start_time
             
             logger.info(f"💬 Generated answer in {processing_time:.2f}s")
@@ -85,16 +85,16 @@ class SearchEngine:
                 processing_time=time.time() - start_time
             )
     
-    def search_enhanced(self, query: str, top_k: int = 5, use_summaries: bool = True) -> ChatResponse:
+    def search_enhanced(self, query: str, top_k: int = 5, use_summaries: bool = True, conversation_history: str = "") -> ChatResponse:
         """Enhanced search that uses both chunks and summaries"""
         start_time = time.time()
         
         try:
             if not use_summaries:
-                return self.search_and_answer(query, top_k)
+                return self.search_and_answer(query, top_k, conversation_history)
             
             # Get regular chunk search results
-            chunk_response = self.search_and_answer(query, top_k)
+            chunk_response = self.search_and_answer(query, top_k, conversation_history)
             
             # Search summaries
             query_embedding = self.clients.openai.get_embedding(query)
@@ -115,7 +115,7 @@ class SearchEngine:
             combined_context = f"Detailed Chunks:\n{chunk_context}\n\nLogical Summaries:\n{summary_context}"
             
             # Generate enhanced answer
-            enhanced_answer = self._generate_enhanced_answer(query, combined_context)
+            enhanced_answer = self._generate_enhanced_answer(query, combined_context, conversation_history)
             
             # Combine sources
             summary_sources = [f"Summary: {meta['filename']}" for meta in summary_results['metadatas'][0]]
@@ -131,9 +131,9 @@ class SearchEngine:
             
         except Exception as e:
             logger.warning(f"Enhanced search failed, falling back to basic search: {e}")
-            return self.search_and_answer(query, top_k)
+            return self.search_and_answer(query, top_k, conversation_history)
     
-    def search_with_location_info(self, query: str, top_k: int = 3) -> ChatResponse:
+    def search_with_location_info(self, query: str, top_k: int = 3, conversation_history: str = "") -> ChatResponse:
         """Search with enhanced location information"""
         start_time = time.time()
         
@@ -169,7 +169,7 @@ class SearchEngine:
             context = "\n---\n".join(context_chunks)
             
             # Generate answer with location awareness
-            answer = self._generate_location_aware_answer(query, context)
+            answer = self._generate_location_aware_answer(query, context, conversation_history)
             processing_time = time.time() - start_time
             
             return ChatResponse(
@@ -186,60 +186,107 @@ class SearchEngine:
                 processing_time=time.time() - start_time
             )
     
-    def _generate_answer(self, query: str, context: str) -> str:
-        """Generate basic answer from context"""
+    def _generate_answer(self, query: str, context: str, conversation_history: str = "") -> str:
+        """Generate basic answer from context with optional conversation history"""
+        
+        # Build system message
+        system_content = ("You are a helpful assistant that answers questions based on provided context. "
+                         "If the context doesn't contain enough information to answer the question, "
+                         "say so clearly. Always be accurate and cite the information from the context.")
+        
+        if conversation_history:
+            system_content += (" You also have access to recent conversation history to understand "
+                             "context and references like 'it', 'that', 'the previous topic', etc.")
+        
+        # Build user message
+        user_content = f"Context:\n{context}"
+        
+        if conversation_history:
+            user_content += f"\n\nRecent Conversation:\n{conversation_history}"
+        
+        user_content += f"\n\nQuestion: {query}\n\nAnswer:"
+        
         messages = [
             {
                 "role": "system",
-                "content": "You are a helpful assistant that answers questions based on provided context. "
-                          "If the context doesn't contain enough information to answer the question, "
-                          "say so clearly. Always be accurate and cite the information from the context."
+                "content": system_content
             },
             {
                 "role": "user",
-                "content": f"Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
+                "content": user_content
             }
         ]
         
         return self.clients.openai.generate_response(messages)
     
-    def _generate_enhanced_answer(self, query: str, combined_context: str) -> str:
-        """Generate enhanced answer using both chunks and summaries"""
+    def _generate_enhanced_answer(self, query: str, combined_context: str, conversation_history: str = "") -> str:
+        """Generate enhanced answer using both chunks and summaries with optional conversation history"""
+        
+        # Build system message
+        system_content = ("Use both detailed chunks and logical summaries to provide comprehensive answers. "
+                         "Summaries give broader context, chunks provide specific details.")
+        
+        if conversation_history:
+            system_content += (" You also have access to recent conversation history to understand "
+                             "context and references like 'it', 'that', 'the previous topic', etc.")
+        
+        # Build user message
+        user_content = f"Context:\n{combined_context}"
+        
+        if conversation_history:
+            user_content += f"\n\nRecent Conversation:\n{conversation_history}"
+        
+        user_content += f"\n\nQuestion: {query}\n\nAnswer:"
+        
         messages = [
             {
                 "role": "system",
-                "content": "Use both detailed chunks and logical summaries to provide comprehensive answers. "
-                          "Summaries give broader context, chunks provide specific details."
+                "content": system_content
             },
             {
                 "role": "user",
-                "content": f"Context:\n{combined_context}\n\nQuestion: {query}\n\nAnswer:"
+                "content": user_content
             }
         ]
         
         return self.clients.openai.generate_response(messages)
     
-    def _generate_location_aware_answer(self, query: str, context: str) -> str:
-        """Generate answer with location information"""
+    def _generate_location_aware_answer(self, query: str, context: str, conversation_history: str = "") -> str:
+        """Generate answer with location information and optional conversation history"""
+        
+        # Build system message
+        system_content = ("You are a helpful assistant that answers questions based on provided context. "
+                         "Each source includes location information in brackets. "
+                         "When referencing information, mention the specific location (page, section) when available. "
+                         "If the context doesn't contain enough information to answer the question, "
+                         "say so clearly. Always be accurate and cite the information from the context.")
+        
+        if conversation_history:
+            system_content += (" You also have access to recent conversation history to understand "
+                             "context and references like 'it', 'that', 'the previous topic', etc.")
+        
+        # Build user message
+        user_content = f"Context with location information:\n{context}"
+        
+        if conversation_history:
+            user_content += f"\n\nRecent Conversation:\n{conversation_history}"
+        
+        user_content += f"\n\nQuestion: {query}\n\nAnswer the question and reference specific locations when mentioning information:"
+        
         messages = [
             {
                 "role": "system",
-                "content": "You are a helpful assistant that answers questions based on provided context. "
-                          "Each source includes location information in brackets. "
-                          "When referencing information, mention the specific location (page, section) when available. "
-                          "If the context doesn't contain enough information to answer the question, "
-                          "say so clearly. Always be accurate and cite the information from the context."
+                "content": system_content
             },
             {
                 "role": "user",
-                "content": f"Context with location information:\n{context}\n\nQuestion: {query}\n\n"
-                          "Answer the question and reference specific locations when mentioning information:"
+                "content": user_content
             }
         ]
         
         return self.clients.openai.generate_response(messages)
     
-    def search_with_paragraphs(self, query: str, top_k_paragraphs: int = 3, top_k_chunks: int = 5) -> ChatResponse:
+    def search_with_paragraphs(self, query: str, top_k_paragraphs: int = 3, top_k_chunks: int = 5, conversation_history: str = "") -> ChatResponse:
         """Search using paragraph summaries for wider context plus detailed chunks"""
         start_time = time.time()
         
@@ -247,7 +294,7 @@ class SearchEngine:
             logger.info(f"🔍 Processing query with paragraph context: {query}")
             
             # Get detailed chunk search
-            chunk_response = self.search_and_answer(query, top_k_chunks)
+            chunk_response = self.search_and_answer(query, top_k_chunks, conversation_history)
             
             # Search paragraph summaries
             query_embedding = self.clients.openai.get_embedding(query)
@@ -269,7 +316,7 @@ class SearchEngine:
             combined_context = f"Detailed Information:\n{chunk_context}\n\nWider Context (Paragraph Summaries):\n{paragraph_context}"
             
             # Generate enhanced answer with paragraph context
-            enhanced_answer = self._generate_paragraph_aware_answer(query, combined_context)
+            enhanced_answer = self._generate_paragraph_aware_answer(query, combined_context, conversation_history)
             
             # Combine sources
             paragraph_sources = [f"Paragraph: {meta['filename']}" for meta in paragraph_results['metadatas'][0]]
@@ -287,20 +334,35 @@ class SearchEngine:
             
         except Exception as e:
             logger.warning(f"Paragraph search failed, falling back to basic search: {e}")
-            return self.search_and_answer(query, top_k_chunks)
+            return self.search_and_answer(query, top_k_chunks, conversation_history)
     
-    def _generate_paragraph_aware_answer(self, query: str, combined_context: str) -> str:
-        """Generate answer using both paragraph context and detailed chunks"""
+    def _generate_paragraph_aware_answer(self, query: str, combined_context: str, conversation_history: str = "") -> str:
+        """Generate answer using both paragraph context and detailed chunks with optional conversation history"""
+        
+        # Build system message
+        system_content = ("Use both detailed information and wider paragraph context to provide comprehensive answers. "
+                         "Paragraph summaries give broader context and themes, detailed information provides specific facts.")
+        
+        if conversation_history:
+            system_content += (" You also have access to recent conversation history to understand "
+                             "context and references like 'it', 'that', 'the previous topic', etc.")
+        
+        # Build user message
+        user_content = f"Context:\n{combined_context}"
+        
+        if conversation_history:
+            user_content += f"\n\nRecent Conversation:\n{conversation_history}"
+        
+        user_content += f"\n\nQuestion: {query}\n\nAnswer using both the detailed information and broader paragraph context:"
+        
         messages = [
             {
                 "role": "system",
-                "content": "Use both detailed information and wider paragraph context to provide comprehensive answers. "
-                          "Paragraph summaries give broader context and themes, detailed information provides specific facts."
+                "content": system_content
             },
             {
                 "role": "user",
-                "content": f"Context:\n{combined_context}\n\nQuestion: {query}\n\n"
-                          "Answer using both the detailed information and broader paragraph context:"
+                "content": user_content
             }
         ]
         

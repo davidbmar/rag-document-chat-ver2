@@ -49,21 +49,21 @@ class RAGSystem:
         """Process uploaded document"""
         return await self.document_processor.process_document(file_content, filename)
     
-    def search_and_answer(self, query: str, top_k: int = 3) -> ChatResponse:
-        """Basic search and answer"""
-        return self.search_engine.search_and_answer(query, top_k)
+    def search_and_answer(self, query: str, top_k: int = 3, conversation_history: str = "") -> ChatResponse:
+        """Basic search and answer with optional conversation history"""
+        return self.search_engine.search_and_answer(query, top_k, conversation_history)
     
-    def search_enhanced(self, query: str, top_k: int = 5, use_summaries: bool = True) -> ChatResponse:
-        """Enhanced search with summaries"""
-        return self.search_engine.search_enhanced(query, top_k, use_summaries)
+    def search_enhanced(self, query: str, top_k: int = 5, use_summaries: bool = True, conversation_history: str = "") -> ChatResponse:
+        """Enhanced search with summaries and optional conversation history"""
+        return self.search_engine.search_enhanced(query, top_k, use_summaries, conversation_history)
     
-    def search_with_location_info(self, query: str, top_k: int = 3) -> ChatResponse:
-        """Search with location information"""
-        return self.search_engine.search_with_location_info(query, top_k)
+    def search_with_location_info(self, query: str, top_k: int = 3, conversation_history: str = "") -> ChatResponse:
+        """Search with location information and optional conversation history"""
+        return self.search_engine.search_with_location_info(query, top_k, conversation_history)
     
-    def search_with_paragraphs(self, query: str, top_k_paragraphs: int = 3, top_k_chunks: int = 5) -> ChatResponse:
-        """Search with paragraph context for wider understanding"""
-        return self.search_engine.search_with_paragraphs(query, top_k_paragraphs, top_k_chunks)
+    def search_with_paragraphs(self, query: str, top_k_paragraphs: int = 3, top_k_chunks: int = 5, conversation_history: str = "") -> ChatResponse:
+        """Search with paragraph context for wider understanding and optional conversation history"""
+        return self.search_engine.search_with_paragraphs(query, top_k_paragraphs, top_k_chunks, conversation_history)
     
     async def process_document_hierarchically(self, filename: str):
         """Process document with hierarchical compression"""

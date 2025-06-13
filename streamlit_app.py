@@ -243,7 +243,7 @@ def clear_chat_history():
 def clear_everything():
     """Clear all data: chat, documents, vectors, S3 files"""
     try:
-        st.info("🚀 Starting COMPREHENSIVE Clear Everything operation...")
+        st.info("🚀 Starting COMPREHENSIVE Clear Everything operation with EXTENSIVE DEBUGGING...")
         
         # Clear session data
         st.session_state.messages = []
@@ -257,14 +257,36 @@ def clear_everything():
         rag_system = st.session_state.rag_system
         chromadb_client = rag_system.clients.chromadb
         
-        # STEP 1: List ALL collections that exist
-        st.info("🔍 Step 1: Discovering all existing collections...")
+        # STEP 1: List ALL collections that exist with detailed inspection
+        st.info("🔍 Step 1: Discovering all existing collections with detailed inspection...")
         all_existing_collections = []
         try:
             # Use the underlying ChromaDB client to list collections
             collections = chromadb_client.client.list_collections()
             all_existing_collections = [col.name for col in collections]
             st.info(f"📋 Found collections: {all_existing_collections}")
+            
+            # DETAILED INSPECTION: Check each collection's content BEFORE deletion
+            st.info("🔍 DETAILED INSPECTION BEFORE DELETION:")
+            for col_name in all_existing_collections:
+                try:
+                    collection = chromadb_client.get_or_create_collection(col_name)
+                    items = collection.get()
+                    count = len(items['ids']) if items and 'ids' in items else 0
+                    
+                    st.info(f"📊 BEFORE: Collection '{col_name}' has {count} items")
+                    
+                    if count > 0 and 'alice' in col_name.lower():
+                        st.warning(f"⚠️ ALICE DATA DETECTED in '{col_name}' with {count} items!")
+                        
+                    # Show sample metadata for logical_summaries specifically
+                    if col_name == "logical_summaries" and count > 0:
+                        sample_meta = items.get('metadatas', [])[:3]
+                        st.info(f"🔍 logical_summaries metadata sample: {sample_meta}")
+                        
+                except Exception as e:
+                    st.info(f"ℹ️ Could not inspect '{col_name}': {e}")
+                    
         except Exception as e:
             st.error(f"❌ Could not list collections: {e}")
             # Fallback to known collection names
@@ -276,51 +298,96 @@ def clear_everything():
         
         for collection_name in all_existing_collections:
             try:
+                st.info(f"🎯 PROCESSING COLLECTION: '{collection_name}'")
+                
                 # Get collection info first using our wrapper
                 try:
                     collection = chromadb_client.get_or_create_collection(collection_name)
                     items = collection.get()
                     count = len(items['ids']) if items and 'ids' in items else 0
                     st.info(f"🗑️ Found collection '{collection_name}' with {count} items")
+                    
+                    # Special attention to logical_summaries
+                    if collection_name == "logical_summaries" and count > 0:
+                        st.warning(f"🎯 TARGETING logical_summaries with {count} items - THIS IS WHERE ALICE DATA LIVES!")
+                        
                 except Exception as e:
-                    st.info(f"ℹ️ Collection '{collection_name}' doesn't exist or can't be accessed")
+                    st.info(f"ℹ️ Collection '{collection_name}' doesn't exist or can't be accessed: {e}")
                     continue
                 
                 # Delete the entire collection using the underlying client
+                st.info(f"🗑️ ATTEMPTING TO DELETE '{collection_name}' using client.delete_collection()...")
                 try:
+                    # STEP 1: Try to delete via underlying client
                     chromadb_client.client.delete_collection(collection_name)
-                    deleted_collections.append(collection_name)
-                    st.success(f"✅ Deleted collection '{collection_name}' ({count} items)")
+                    st.success(f"✅ Successfully called client.delete_collection('{collection_name}')")
                     
-                    # Also remove from our wrapper's cache
+                    # STEP 2: Verify it's gone from underlying client
+                    try:
+                        remaining_collections = chromadb_client.client.list_collections()
+                        remaining_names = [col.name for col in remaining_collections]
+                        if collection_name in remaining_names:
+                            st.error(f"❌ CRITICAL: '{collection_name}' still exists in ChromaDB after deletion!")
+                        else:
+                            st.success(f"✅ VERIFIED: '{collection_name}' removed from ChromaDB")
+                    except Exception as verify_e:
+                        st.warning(f"⚠️ Could not verify deletion: {verify_e}")
+                    
+                    # STEP 3: Clear wrapper cache
                     if collection_name in chromadb_client.collections:
                         del chromadb_client.collections[collection_name]
+                        st.success(f"✅ Removed '{collection_name}' from wrapper cache")
                     
-                    # CRITICAL: Clear SearchEngine's cached collection references
+                    # STEP 4: Clear SearchEngine cached references
                     if hasattr(rag_system, 'search_engine'):
                         if collection_name == "documents":
+                            old_ref = rag_system.search_engine.document_collection
                             rag_system.search_engine.document_collection = None
+                            st.success(f"✅ Cleared SearchEngine.document_collection (was: {type(old_ref)})")
                         elif collection_name == "logical_summaries":
+                            old_ref = rag_system.search_engine.summary_collection
                             rag_system.search_engine.summary_collection = None
+                            st.success(f"✅ Cleared SearchEngine.summary_collection (was: {type(old_ref)})")
                         elif collection_name == "paragraph_summaries":
+                            old_ref = rag_system.search_engine.paragraph_collection
                             rag_system.search_engine.paragraph_collection = None
+                            st.success(f"✅ Cleared SearchEngine.paragraph_collection (was: {type(old_ref)})")
+                    
+                    deleted_collections.append(collection_name)
+                    st.success(f"🎉 COMPLETED DELETION OF '{collection_name}' ({count} items)")
                         
                 except Exception as e:
-                    st.error(f"❌ Failed to delete collection '{collection_name}': {e}")
+                    st.error(f"❌ CRITICAL FAILURE: Could not delete collection '{collection_name}': {e}")
+                    st.error(f"❌ Exception type: {type(e)}")
+                    st.error(f"❌ Exception details: {str(e)}")
                 
             except Exception as e:
                 st.error(f"❌ Failed to process collection '{collection_name}': {e}")
         
-        # STEP 3: Verify all collections are gone
-        st.info("✅ Step 3: Verifying collections are deleted...")
+        # STEP 3: Extensive verification that collections are gone
+        st.info("✅ Step 3: EXTENSIVE VERIFICATION that collections are deleted...")
         try:
             remaining_collections = chromadb_client.client.list_collections()
             remaining_names = [col.name for col in remaining_collections]
             
+            st.info(f"🔍 Collections remaining after deletion: {remaining_names}")
+            
             if remaining_names:
-                st.warning(f"⚠️ Some collections still exist: {remaining_names}")
+                st.error(f"❌ CRITICAL: Some collections still exist: {remaining_names}")
+                
+                # Check if logical_summaries specifically still exists
+                if "logical_summaries" in remaining_names:
+                    st.error("🚨 CRITICAL: logical_summaries collection STILL EXISTS after deletion!")
+                    try:
+                        # Try to access it and see what's in it
+                        surviving_collection = chromadb_client.get_or_create_collection("logical_summaries")
+                        surviving_items = surviving_collection.get()
+                        surviving_count = len(surviving_items['ids']) if surviving_items and 'ids' in surviving_items else 0
+                        st.error(f"🚨 logical_summaries still has {surviving_count} items!")
+                    except Exception as check_e:
+                        st.info(f"ℹ️ Could not check surviving logical_summaries: {check_e}")
             else:
-                st.success("✅ All collections successfully deleted")
+                st.success("✅ All collections successfully deleted - CLEAN STATE ACHIEVED!")
         except Exception as e:
             st.error(f"❌ Could not verify deletion: {e}")
         
@@ -360,8 +427,8 @@ def clear_everything():
         except Exception as docker_e:
             st.warning(f"⚠️ Could not restart ChromaDB: {docker_e}")
         
-        # STEP 5: Clear S3 files (if configured)
-        st.info("☁️ Step 5: Clearing S3 files...")
+        # STEP 5: EXTENSIVE S3 INVESTIGATION AND CLEARING
+        st.info("☁️ Step 5: EXTENSIVE S3 INVESTIGATION AND CLEARING...")
         try:
             if hasattr(rag_system.clients, 's3') and rag_system.clients.s3:
                 from config import config
@@ -369,22 +436,55 @@ def clear_everything():
                     s3_client = rag_system.clients.s3
                     bucket = config.s3_bucket
                     
-                    # List and delete all objects in bucket
+                    st.info(f"🔍 S3 INVESTIGATION: Checking bucket '{bucket}'...")
+                    
+                    # List and examine all objects in bucket
                     response = s3_client.list_objects_v2(Bucket=bucket)
                     if 'Contents' in response:
-                        objects_to_delete = [{'Key': obj['Key']} for obj in response['Contents']]
+                        objects_found = response['Contents']
+                        st.info(f"📋 S3 BEFORE CLEARING: Found {len(objects_found)} objects in bucket")
+                        
+                        # Check for alice-related files
+                        alice_objects = [obj for obj in objects_found if 'alice' in obj['Key'].lower()]
+                        if alice_objects:
+                            st.warning(f"⚠️ ALICE FILES IN S3: Found {len(alice_objects)} alice-related files:")
+                            for obj in alice_objects[:5]:  # Show first 5
+                                st.info(f"   📄 S3 File: {obj['Key']} (Size: {obj['Size']} bytes)")
+                        
+                        # Delete all objects
+                        objects_to_delete = [{'Key': obj['Key']} for obj in objects_found]
                         if objects_to_delete:
-                            s3_client.delete_objects(
+                            delete_response = s3_client.delete_objects(
                                 Bucket=bucket,
                                 Delete={'Objects': objects_to_delete}
                             )
+                            
+                            # Check for errors in deletion
+                            if 'Errors' in delete_response:
+                                st.error(f"❌ S3 DELETION ERRORS: {delete_response['Errors']}")
+                            
                             st.success(f"🗑️ Deleted {len(objects_to_delete)} files from S3")
+                            
+                            # Verify S3 is empty
+                            verify_response = s3_client.list_objects_v2(Bucket=bucket)
+                            if 'Contents' in verify_response:
+                                remaining_objects = verify_response['Contents']
+                                st.error(f"❌ S3 STILL HAS FILES: {len(remaining_objects)} objects remain after deletion!")
+                                for obj in remaining_objects[:3]:
+                                    st.error(f"   📄 Remaining: {obj['Key']}")
+                            else:
+                                st.success("✅ S3 bucket verified empty")
                         else:
                             st.info("📁 S3 bucket was already empty")
                     else:
-                        st.info("📁 S3 bucket was already empty")
+                        st.info("📁 S3 bucket was empty")
+                else:
+                    st.info("ℹ️ No S3 bucket configured")
+            else:
+                st.info("ℹ️ S3 client not available or not configured")
         except Exception as e:
-            st.warning(f"⚠️ Could not clear S3 files: {str(e)}")
+            st.error(f"❌ S3 operation failed: {str(e)}")
+            st.error(f"❌ S3 error details: {type(e)} - {str(e)}")
         
         # STEP 6: Force reinitialize RAG system with fresh ChromaDB
         st.info("🔄 Step 6: Reinitializing RAG system...")
@@ -412,8 +512,8 @@ def clear_everything():
         except Exception as e:
             st.error(f"❌ Could not reinitialize RAG system: {str(e)}")
         
-        # STEP 7: Final verification
-        st.info("🔍 Step 7: Final verification...")
+        # STEP 7: FINAL COMPREHENSIVE VERIFICATION
+        st.info("🔍 Step 7: FINAL COMPREHENSIVE VERIFICATION...")
         try:
             new_rag_system = st.session_state.rag_system
             new_chromadb_client = new_rag_system.clients.chromadb
@@ -421,21 +521,49 @@ def clear_everything():
             final_collections = new_chromadb_client.client.list_collections()
             final_names = [col.name for col in final_collections]
             
+            st.info(f"🔍 FINAL STATE: Collections after full reset: {final_names}")
+            
             if final_names:
                 st.warning(f"⚠️ Some collections were recreated: {final_names}")
-                # Check if they have data
+                
+                # Detailed check of each recreated collection
+                total_items = 0
                 for name in final_names:
                     try:
                         coll = new_chromadb_client.get_or_create_collection(name)
-                        count = len(coll.get()['ids'])
-                        st.info(f"📊 Collection '{name}': {count} items")
-                    except:
-                        pass
+                        items = coll.get()
+                        count = len(items['ids']) if items and 'ids' in items else 0
+                        total_items += count
+                        
+                        st.info(f"📊 FINAL: Collection '{name}': {count} items")
+                        
+                        # Critical check for alice data
+                        if count > 0:
+                            st.warning(f"⚠️ UNEXPECTED DATA: '{name}' has {count} items after full reset!")
+                            
+                            # Check metadata for alice references
+                            if items.get('metadatas'):
+                                sample_meta = items['metadatas'][:2]
+                                st.info(f"🔍 FINAL METADATA in '{name}': {sample_meta}")
+                                
+                                # Look for alice filenames
+                                alice_files = [meta.get('filename', '') for meta in items['metadatas'] if 'alice' in str(meta.get('filename', '')).lower()]
+                                if alice_files:
+                                    st.error(f"🚨 ALICE FILES DETECTED in '{name}': {alice_files}")
+                    except Exception as coll_e:
+                        st.info(f"ℹ️ Could not check collection '{name}': {coll_e}")
+                        
+                if total_items == 0:
+                    st.success("✅ All recreated collections are empty - CLEAN STATE ACHIEVED!")
+                else:
+                    st.error(f"🚨 CRITICAL: {total_items} items found across collections after full reset!")
+                    
             else:
-                st.success("✅ No collections exist - clean state achieved")
+                st.success("✅ No collections exist - PERFECT CLEAN STATE ACHIEVED!")
                 
         except Exception as e:
-            st.warning(f"⚠️ Could not verify final state: {e}")
+            st.error(f"❌ Could not verify final state: {e}")
+            st.error(f"❌ Final verification error details: {str(e)}")
         
         st.success("💥 COMPREHENSIVE CLEAR COMPLETE! System completely reset.")
         st.info("🔄 Please refresh the page to ensure all changes take effect.")

@@ -398,20 +398,30 @@ def clear_everything():
             import subprocess
             import time
             
-            # Stop ChromaDB
-            st.info("🛑 Stopping ChromaDB container...")
-            subprocess.run(["docker", "stop", "rag_chromadb"], check=True, capture_output=True)
-            st.success("✅ ChromaDB container stopped")
-            
-            # Remove the container entirely
-            st.info("🗑️ Removing ChromaDB container...")
+            # STEP 1: Use docker-compose down to cleanly stop all services
+            st.info("🛑 Stopping all services with docker-compose down...")
             try:
-                subprocess.run(["docker", "rm", "rag_chromadb"], check=True, capture_output=True)
-                st.success("✅ ChromaDB container removed")
-            except Exception as rm_e:
-                st.warning(f"⚠️ Could not remove container (may not exist): {rm_e}")
+                down_result = subprocess.run(
+                    ["docker-compose", "down"], 
+                    capture_output=True, text=True, check=True
+                )
+                st.success("✅ All services stopped cleanly")
+                st.info(f"docker-compose down output: {down_result.stdout}")
+            except Exception as down_e:
+                st.warning(f"⚠️ docker-compose down failed: {down_e}")
+                # Fallback to manual container stop
+                try:
+                    subprocess.run(["docker", "stop", "rag_chromadb"], capture_output=True, text=True)
+                    subprocess.run(["docker", "rm", "-f", "rag_chromadb"], capture_output=True, text=True)
+                    st.info("✅ Fallback container cleanup completed")
+                except:
+                    pass
             
-            # CRITICAL: Delete the persistent Docker volume
+            # STEP 2: Wait a moment for complete cleanup
+            st.info("⏳ Waiting for complete cleanup...")
+            time.sleep(2)
+            
+            # STEP 3: Delete the persistent Docker volume
             st.info("💥 DELETING PERSISTENT CHROMADB VOLUME...")
             try:
                 volume_result = subprocess.run(
@@ -422,18 +432,25 @@ def clear_everything():
                 st.info(f"Volume deletion output: {volume_result.stdout}")
             except Exception as vol_e:
                 st.error(f"❌ CRITICAL: Could not delete ChromaDB volume: {vol_e}")
-                # Try to force delete
+                st.error(f"Error details: {vol_e}")
+                
+                # Show what volumes exist
                 try:
-                    subprocess.run(["docker", "volume", "rm", "-f", "rag-document-chat-ver2_chromadb_data"], 
-                                 check=True, capture_output=True)
-                    st.success("✅ FORCED deletion of ChromaDB volume succeeded")
-                except Exception as force_e:
-                    st.error(f"❌ FORCED deletion also failed: {force_e}")
+                    ls_result = subprocess.run(
+                        ["docker", "volume", "ls"], capture_output=True, text=True
+                    )
+                    st.info(f"Available volumes: {ls_result.stdout}")
+                except:
+                    pass
             
-            # Recreate ChromaDB with fresh volume
+            # STEP 4: Recreate ChromaDB with fresh volume
             st.info("🚀 Recreating ChromaDB with fresh storage...")
-            subprocess.run(["docker-compose", "up", "-d", "chromadb"], check=True, capture_output=True)
+            recreate_result = subprocess.run(
+                ["docker-compose", "up", "-d", "chromadb"], 
+                check=True, capture_output=True, text=True
+            )
             st.success("✅ ChromaDB recreated with fresh storage")
+            st.info(f"Recreate output: {recreate_result.stdout}")
             
             # Wait for it to be ready
             st.info("⏳ Waiting for new ChromaDB to be ready...")

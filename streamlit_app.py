@@ -514,31 +514,51 @@ def clear_everything():
             st.error(f"❌ S3 operation failed: {str(e)}")
             st.error(f"❌ S3 error details: {type(e)} - {str(e)}")
         
-        # STEP 6: Force reinitialize RAG system with fresh ChromaDB
-        st.info("🔄 Step 6: Reinitializing RAG system...")
+        # STEP 6: COMPLETE SESSION STATE RESET AND SYSTEM REINITIALIZATION
+        st.info("🔄 Step 6: COMPLETE SESSION STATE RESET...")
         try:
-            # Clear all session state except messages (to show this progress)
-            keys_to_keep = ['messages']
+            # CRITICAL: Clear ALL session state including messages
+            st.info("🗑️ Clearing ALL session state...")
+            session_keys_before = list(st.session_state.keys())
+            st.info(f"Session keys before clearing: {session_keys_before}")
+            
             for key in list(st.session_state.keys()):
-                if key not in keys_to_keep:
-                    del st.session_state[key]
+                del st.session_state[key]
             
-            # Force reload modules to ensure fresh state
+            st.success("✅ ALL session state cleared")
+            
+            # Force reload ALL relevant modules to ensure fresh state
+            st.info("🔄 Reloading Python modules...")
             import importlib
-            import rag_system
-            importlib.reload(rag_system)
+            import sys
             
-            # Create fresh RAG system
+            modules_to_reload = ['rag_system', 'search_engine', 'clients', 'models']
+            for module_name in modules_to_reload:
+                if module_name in sys.modules:
+                    importlib.reload(sys.modules[module_name])
+                    st.info(f"✅ Reloaded {module_name}")
+            
+            # Create completely fresh RAG system
+            st.info("🆕 Creating fresh RAG system...")
             from rag_system import RAGSystem
             st.session_state.rag_system = RAGSystem()
             
-            # Initialize empty conversation history
+            # Initialize fresh session state
+            st.session_state.messages = []
             st.session_state.conversation_history = []
             
-            st.success("✅ RAG system reinitialized with fresh ChromaDB")
+            # Verify the new system has fresh collections
+            new_rag = st.session_state.rag_system
+            doc_coll_id = id(new_rag.search_engine.document_collection)
+            sum_coll_id = id(new_rag.search_engine.summary_collection)
+            par_coll_id = id(new_rag.search_engine.paragraph_collection)
+            
+            st.success("✅ Fresh RAG system created with new collection objects")
+            st.info(f"New collection object IDs: doc={doc_coll_id}, sum={sum_coll_id}, par={par_coll_id}")
             
         except Exception as e:
             st.error(f"❌ Could not reinitialize RAG system: {str(e)}")
+            st.error(f"Error details: {type(e)} - {str(e)}")
         
         # STEP 7: FINAL COMPREHENSIVE VERIFICATION
         st.info("🔍 Step 7: FINAL COMPREHENSIVE VERIFICATION...")
@@ -594,8 +614,19 @@ def clear_everything():
             st.error(f"❌ Final verification error details: {str(e)}")
         
         st.success("💥 COMPREHENSIVE CLEAR COMPLETE! System completely reset.")
-        st.info("🔄 Please refresh the page to ensure all changes take effect.")
-        st.rerun()
+        st.warning("🔄 IMPORTANT: You MUST refresh the browser page (F5) for the reset to take full effect!")
+        st.info("The clear operation has completed, but Streamlit session state requires a page refresh.")
+        
+        # Force a complete page reload
+        st.markdown("""
+        <script>
+        setTimeout(function() {
+            window.location.reload();
+        }, 3000);
+        </script>
+        """, unsafe_allow_html=True)
+        
+        st.info("⏳ Page will automatically refresh in 3 seconds...")
         
     except Exception as e:
         st.error(f"❌ Error during comprehensive cleanup: {str(e)}")
@@ -860,43 +891,6 @@ with st.sidebar:
     # Clear Everything section
     st.divider()
     st.subheader("🗑️ System Reset")
-    
-    # Manual collection wipe button for debugging
-    if st.button("🔧 Manual Collection Wipe (Debug)", help="Manually wipe all collection data for debugging"):
-        try:
-            rag_system = st.session_state.rag_system
-            
-            # Get and wipe each collection directly
-            collections_to_wipe = ["documents", "logical_summaries", "paragraph_summaries", "original_texts"]
-            
-            for coll_name in collections_to_wipe:
-                try:
-                    # Get collection
-                    coll = rag_system.clients.chromadb.get_or_create_collection(coll_name)
-                    
-                    # Get all items
-                    items = coll.get()
-                    count = len(items['ids']) if items and 'ids' in items else 0
-                    
-                    if count > 0:
-                        st.info(f"🔧 Manual wipe: {coll_name} has {count} items")
-                        
-                        # Delete all items
-                        coll.delete(ids=items['ids'])
-                        st.success(f"🗑️ Manually wiped {count} items from {coll_name}")
-                        
-                        # Verify
-                        remaining = coll.get()
-                        remaining_count = len(remaining['ids']) if remaining and 'ids' in remaining else 0
-                        st.info(f"✅ {coll_name} now has {remaining_count} items")
-                    else:
-                        st.info(f"📭 {coll_name} was already empty")
-                        
-                except Exception as e:
-                    st.error(f"❌ Failed to wipe {coll_name}: {str(e)}")
-                    
-        except Exception as e:
-            st.error(f"❌ Manual wipe failed: {str(e)}")
     
     # Debug info - show current collections
     try:

@@ -261,11 +261,14 @@ def clear_everything():
         st.info("🔍 Step 1: Discovering all existing collections...")
         all_existing_collections = []
         try:
-            collections = chromadb_client.list_collections()
+            # Use the underlying ChromaDB client to list collections
+            collections = chromadb_client.client.list_collections()
             all_existing_collections = [col.name for col in collections]
             st.info(f"📋 Found collections: {all_existing_collections}")
         except Exception as e:
             st.error(f"❌ Could not list collections: {e}")
+            # Fallback to known collection names
+            all_existing_collections = ["documents", "logical_summaries", "paragraph_summaries", "original_texts"]
         
         # STEP 2: Delete ALL collections completely (not just their contents)
         st.info("🗑️ Step 2: Deleting ALL collections completely...")
@@ -273,25 +276,45 @@ def clear_everything():
         
         for collection_name in all_existing_collections:
             try:
-                # Get collection info first
-                collection = chromadb_client.get_collection(collection_name)
-                items = collection.get()
-                count = len(items['ids']) if items and 'ids' in items else 0
+                # Get collection info first using our wrapper
+                try:
+                    collection = chromadb_client.get_or_create_collection(collection_name)
+                    items = collection.get()
+                    count = len(items['ids']) if items and 'ids' in items else 0
+                    st.info(f"🗑️ Found collection '{collection_name}' with {count} items")
+                except Exception as e:
+                    st.info(f"ℹ️ Collection '{collection_name}' doesn't exist or can't be accessed")
+                    continue
                 
-                st.info(f"🗑️ Deleting collection '{collection_name}' ({count} items)")
-                
-                # Delete the entire collection
-                chromadb_client.delete_collection(collection_name)
-                deleted_collections.append(collection_name)
-                st.success(f"✅ Deleted collection '{collection_name}'")
+                # Delete the entire collection using the underlying client
+                try:
+                    chromadb_client.client.delete_collection(collection_name)
+                    deleted_collections.append(collection_name)
+                    st.success(f"✅ Deleted collection '{collection_name}' ({count} items)")
+                    
+                    # Also remove from our wrapper's cache
+                    if collection_name in chromadb_client.collections:
+                        del chromadb_client.collections[collection_name]
+                    
+                    # CRITICAL: Clear SearchEngine's cached collection references
+                    if hasattr(rag_system, 'search_engine'):
+                        if collection_name == "documents":
+                            rag_system.search_engine.document_collection = None
+                        elif collection_name == "logical_summaries":
+                            rag_system.search_engine.summary_collection = None
+                        elif collection_name == "paragraph_summaries":
+                            rag_system.search_engine.paragraph_collection = None
+                        
+                except Exception as e:
+                    st.error(f"❌ Failed to delete collection '{collection_name}': {e}")
                 
             except Exception as e:
-                st.error(f"❌ Failed to delete collection '{collection_name}': {e}")
+                st.error(f"❌ Failed to process collection '{collection_name}': {e}")
         
         # STEP 3: Verify all collections are gone
         st.info("✅ Step 3: Verifying collections are deleted...")
         try:
-            remaining_collections = chromadb_client.list_collections()
+            remaining_collections = chromadb_client.client.list_collections()
             remaining_names = [col.name for col in remaining_collections]
             
             if remaining_names:
@@ -395,7 +418,7 @@ def clear_everything():
             new_rag_system = st.session_state.rag_system
             new_chromadb_client = new_rag_system.clients.chromadb
             
-            final_collections = new_chromadb_client.list_collections()
+            final_collections = new_chromadb_client.client.list_collections()
             final_names = [col.name for col in final_collections]
             
             if final_names:
@@ -403,7 +426,7 @@ def clear_everything():
                 # Check if they have data
                 for name in final_names:
                     try:
-                        coll = new_chromadb_client.get_collection(name)
+                        coll = new_chromadb_client.get_or_create_collection(name)
                         count = len(coll.get()['ids'])
                         st.info(f"📊 Collection '{name}': {count} items")
                     except:
@@ -484,7 +507,8 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                     
                     # First, list ALL collections that actually exist in ChromaDB
                     try:
-                        all_collections = chromadb_client.list_collections()
+                        # Use the underlying client to list collections
+                        all_collections = chromadb_client.client.list_collections()
                         existing_collection_names = [col.name for col in all_collections]
                         st.caption(f"🔍 ALL COLLECTIONS: {existing_collection_names}")
                         

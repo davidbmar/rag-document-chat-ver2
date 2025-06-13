@@ -391,41 +391,69 @@ def clear_everything():
         except Exception as e:
             st.error(f"❌ Could not verify deletion: {e}")
         
-        # STEP 4: Force restart ChromaDB to ensure clean state
-        st.info("🔄 Step 4: Restarting ChromaDB for clean state...")
+        # STEP 4: NUCLEAR OPTION - Delete Docker volume and recreate ChromaDB
+        st.info("💥 Step 4: NUCLEAR OPTION - Destroying persistent ChromaDB storage...")
         
         try:
             import subprocess
             import time
             
             # Stop ChromaDB
+            st.info("🛑 Stopping ChromaDB container...")
             subprocess.run(["docker", "stop", "rag_chromadb"], check=True, capture_output=True)
-            st.info("🛑 ChromaDB stopped")
+            st.success("✅ ChromaDB container stopped")
             
-            time.sleep(2)
+            # Remove the container entirely
+            st.info("🗑️ Removing ChromaDB container...")
+            try:
+                subprocess.run(["docker", "rm", "rag_chromadb"], check=True, capture_output=True)
+                st.success("✅ ChromaDB container removed")
+            except Exception as rm_e:
+                st.warning(f"⚠️ Could not remove container (may not exist): {rm_e}")
             
-            # Start ChromaDB
-            subprocess.run(["docker", "start", "rag_chromadb"], check=True, capture_output=True)
-            st.info("🚀 ChromaDB started")
+            # CRITICAL: Delete the persistent Docker volume
+            st.info("💥 DELETING PERSISTENT CHROMADB VOLUME...")
+            try:
+                volume_result = subprocess.run(
+                    ["docker", "volume", "rm", "rag-document-chat-ver2_chromadb_data"], 
+                    check=True, capture_output=True, text=True
+                )
+                st.success("✅ PERSISTENT CHROMADB VOLUME DELETED!")
+                st.info(f"Volume deletion output: {volume_result.stdout}")
+            except Exception as vol_e:
+                st.error(f"❌ CRITICAL: Could not delete ChromaDB volume: {vol_e}")
+                # Try to force delete
+                try:
+                    subprocess.run(["docker", "volume", "rm", "-f", "rag-document-chat-ver2_chromadb_data"], 
+                                 check=True, capture_output=True)
+                    st.success("✅ FORCED deletion of ChromaDB volume succeeded")
+                except Exception as force_e:
+                    st.error(f"❌ FORCED deletion also failed: {force_e}")
+            
+            # Recreate ChromaDB with fresh volume
+            st.info("🚀 Recreating ChromaDB with fresh storage...")
+            subprocess.run(["docker-compose", "up", "-d", "chromadb"], check=True, capture_output=True)
+            st.success("✅ ChromaDB recreated with fresh storage")
             
             # Wait for it to be ready
-            st.info("⏳ Waiting for ChromaDB to be ready...")
-            for i in range(15):  # Wait up to 30 seconds
+            st.info("⏳ Waiting for new ChromaDB to be ready...")
+            for i in range(20):  # Wait up to 40 seconds
                 try:
                     # Test ChromaDB connectivity
                     import requests
                     response = requests.get("http://localhost:8002/api/v2/heartbeat", timeout=2)
                     if response.status_code == 200:
-                        st.success("✅ ChromaDB is ready")
+                        st.success("✅ Fresh ChromaDB is ready!")
                         break
                 except:
                     time.sleep(2)
                     
-            if i == 14:  # If we went through all attempts
-                st.warning("⚠️ ChromaDB may not be fully ready yet")
+            if i == 19:  # If we went through all attempts
+                st.error("❌ ChromaDB may not be ready - check manually")
             
         except Exception as docker_e:
-            st.warning(f"⚠️ Could not restart ChromaDB: {docker_e}")
+            st.error(f"❌ Docker operations failed: {docker_e}")
+            st.error(f"❌ Docker error details: {str(docker_e)}")
         
         # STEP 5: EXTENSIVE S3 INVESTIGATION AND CLEARING
         st.info("☁️ Step 5: EXTENSIVE S3 INVESTIGATION AND CLEARING...")

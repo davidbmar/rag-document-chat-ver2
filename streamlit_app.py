@@ -5,11 +5,15 @@ Streamlit app for RAG Document Chat System
 
 import asyncio
 import os
+import logging
 import streamlit as st
 
 # Don't force demo mode - let config determine based on API key availability
 
 from rag_system import RAGSystem
+
+# Set up logging for button clicks
+logger = logging.getLogger(__name__)
 
 # Initialize RAG system
 if 'rag_system' not in st.session_state:
@@ -43,6 +47,7 @@ if uploaded_file is not None:
     
     with col1:
         if st.button("📄 Basic Chunks", use_container_width=True, help="Process into logical chunks"):
+            logger.info(f"📄 BUTTON CLICKED: Basic Chunks for file: {uploaded_file.name}")
             with st.spinner("Creating logical chunks..."):
                 try:
                     result = asyncio.run(rag_system.process_document(
@@ -65,6 +70,7 @@ if uploaded_file is not None:
     with col2:
         if 'last_processed_file' in st.session_state and st.session_state['last_processed_file'] == uploaded_file.name:
             if st.button("🧠 Smart Summaries", use_container_width=True, help="Add 10:1 compressed summaries"):
+                logger.info(f"🧠 BUTTON CLICKED: Smart Summaries for file: {uploaded_file.name}")
                 with st.spinner("Creating smart summaries (10:1 compression)..."):
                     try:
                         result = asyncio.run(
@@ -116,6 +122,7 @@ if uploaded_file is not None:
     with col3:
         if 'last_processed_file' in st.session_state and st.session_state['last_processed_file'] == uploaded_file.name:
             if st.button("📝 Paragraph Context", use_container_width=True, help="Create paragraph summaries for wider search context"):
+                logger.info(f"📝 BUTTON CLICKED: Paragraph Context for file: {uploaded_file.name}")
                 with st.spinner("Creating paragraph summaries (3:1 compression)..."):
                     try:
                         result = asyncio.run(
@@ -233,16 +240,24 @@ def get_conversation_context() -> str:
 
 def clear_chat_history():
     """Clear only chat display and conversation memory"""
+    logger.info("🗨️ BUTTON CLICKED: Clear Chat History")
+    logger.info("ℹ️ NOTE: This only clears chat display and conversation memory - documents remain in database")
+    
     st.session_state.messages = []
     st.session_state.conversation_history = []
     if 'last_processed_file' in st.session_state:
         del st.session_state['last_processed_file']
+    
+    logger.info("✅ Chat history and conversation memory cleared")
     st.success("💬 Chat history cleared!")
+    st.info("ℹ️ Note: Processed documents remain in database. Use 'Clear Everything' to remove documents.")
     st.rerun()
 
 def clear_everything():
     """Clear all data: chat, documents, vectors, S3 files"""
     try:
+        logger.info("⚠️ BUTTON CLICKED: Clear Everything")
+        logger.info("🚀 Starting COMPREHENSIVE Clear Everything operation...")
         st.info("🚀 Starting COMPREHENSIVE Clear Everything operation with EXTENSIVE DEBUGGING...")
         
         # Clear session data
@@ -899,7 +914,7 @@ with st.sidebar:
                 st.divider()
         
         # Clear Chat button
-        if st.button("🗨️ Clear Chat History", use_container_width=True, help="Clear conversation display and memory only"):
+        if st.button("🗨️ Clear Chat Only", use_container_width=True, help="Clear conversation display and memory only (documents remain in database)"):
             clear_chat_history()
     else:
         st.info("💭 No conversation history yet")
@@ -936,7 +951,7 @@ with st.sidebar:
         st.caption(f"⚠️ Could not check collections: {str(e)}")
     
     if st.button(
-        "⚠️ Clear Everything", 
+        "⚠️ Clear All Documents & Chat", 
         use_container_width=True, 
         type="secondary",
         help="⚠️ WARNING: Deletes ALL data including:\n• Chat history & conversation memory\n• All processed documents\n• ChromaDB vectors & summaries\n• S3 uploaded files\n• All processing status\n\nThis cannot be undone!"

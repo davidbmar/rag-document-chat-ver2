@@ -13,7 +13,7 @@ from pathlib import Path
 
 # Import config to get default API URL
 try:
-    from core.config import core.config
+    from src.core.config import config
     DEFAULT_API_URL = config.api_url
 except ImportError:
     # Fallback if config import fails

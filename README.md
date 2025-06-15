@@ -137,6 +137,15 @@ source rag_env/bin/activate
 python3 app_refactored.py
 ```
 
+#### RAG CLI (Executable)
+```bash
+# Can be run from anywhere in the project
+./rag search "your query"
+./rag ask "your question"
+./rag list
+./rag status
+```
+
 ### Access URLs
 - **Web Interface**: http://localhost:8501 (or your-server-ip:8501)
 - **API Server**: http://localhost:8000 (or your-server-ip:8000)
@@ -149,6 +158,61 @@ python3 app_refactored.py
 3. **Smart Summaries** (Optional) - Generates 10:1 compressed logical summaries
 4. **Paragraph Context** (Optional) - Creates 3:1 compressed paragraph summaries
 5. **Chat** - Ask questions using the best available search method
+
+## 🖥️ CLI Usage
+
+The `rag` executable provides a powerful command-line interface to the RAG system:
+
+### Basic Commands
+```bash
+# Search documents
+./rag search "vacation policy"
+./rag search "database backup procedures"
+
+# Ask questions
+./rag ask "How many vacation days do employees get?"
+./rag ask "Can employees work remotely?"
+
+# System management
+./rag list                    # List all documents
+./rag status                  # Check system health
+./rag collections             # View collections info
+./rag clear                   # Clear all documents
+```
+
+### Advanced Usage
+```bash
+# Filtered search
+./rag search "policy" --documents company_policy.txt
+./rag search "backup" --exclude alice.txt
+
+# Search strategies
+./rag ask "remote work" --strategy enhanced
+./rag ask "warranty info" --strategy paragraph
+
+# Interactive mode
+./rag ask "hello" --interactive
+
+# Save and reuse search results
+./rag search "vacation" --save vacation_search.json
+./rag ask "How many days?" --from-search vacation_search.json
+```
+
+### Document Processing
+```bash
+# Upload new documents
+./rag process upload test_documents/new_policy.txt
+
+# Generate enhanced summaries
+./rag process summaries company_policy.txt
+./rag process paragraphs technical_manual.txt
+```
+
+The CLI automatically handles:
+- ✅ **Virtual environment** - Works without manual activation
+- ✅ **Path resolution** - Can be run from any subdirectory
+- ✅ **API connectivity** - Connects to local API server
+- ✅ **Error handling** - Clear error messages and graceful failures
 
 ## 🏗️ Architecture
 

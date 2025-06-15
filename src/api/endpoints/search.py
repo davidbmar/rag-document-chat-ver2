@@ -5,7 +5,7 @@ Search and question-answering API endpoints
 import logging
 from fastapi import APIRouter, HTTPException
 
-from core.models import SearchRequest, SearchResponse, AskRequest, ChatResponse
+from src.core.models import SearchRequest, SearchResponse, AskRequest, ChatResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

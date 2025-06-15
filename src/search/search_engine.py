@@ -8,8 +8,8 @@ import uuid
 import logging
 from typing import List, Dict, Any, Optional
 
-from core.models import ChatResponse, SearchRequest, SearchResponse, SearchResult, AskRequest
-from core.clients import ClientManager
+from src.core.models import ChatResponse, SearchRequest, SearchResponse, SearchResult, AskRequest
+from src.core.clients import ClientManager
 
 logger = logging.getLogger(__name__)
 

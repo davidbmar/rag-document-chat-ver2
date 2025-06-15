@@ -10,7 +10,7 @@ import streamlit as st
 
 # Don't force demo mode - let config determine based on API key availability
 
-from search.rag_system import RAGSystem
+from src.search.rag_system import RAGSystem
 
 # Set up logging for button clicks
 logger = logging.getLogger(__name__)
@@ -320,7 +320,7 @@ if uploaded_file is not None:
         
         # Show S3 status if available
         try:
-            from core.config import core.config
+            from src.core.config import config
             if hasattr(rag_system.clients, 's3') and rag_system.clients.s3 and config.s3_bucket:
                 st.write("**S3 Storage:**")
                 try:
@@ -410,7 +410,7 @@ def clear_everything():
         st.info("☁️ Step 2: Clearing S3 storage...")
         try:
             if hasattr(rag_system.clients, 's3') and rag_system.clients.s3:
-                from core.config import core.config
+                from src.core.config import config
                 if config.s3_bucket:
                     s3_client = rag_system.clients.s3
                     bucket = config.s3_bucket
@@ -529,7 +529,7 @@ def clear_everything():
                 del st.session_state[key]
             
             # Create fresh RAG system
-            from search.rag_system import RAGSystem
+            from src.search.rag_system import RAGSystem
             st.session_state.rag_system = RAGSystem()
             st.session_state.messages = []
             st.session_state.conversation_history = []
@@ -813,7 +813,7 @@ with st.sidebar:
         else:
             st.warning(f"⚠️ {service.title()}: {state}")
     
-    from core.config import core.config
+    from src.core.config import config
     if config.demo_mode:
         st.info("🎭 Running in Demo Mode")
         st.markdown("To use with real OpenAI API, set your API key in environment variables.")

@@ -19,10 +19,10 @@ except ImportError:
     STREAMLIT_AVAILABLE = False
     st = None
 
-from config import config
-from models import ChatRequest, ChatResponse, DocumentResponse, SearchRequest, SearchResponse, AskRequest, ProcessRequest
-from rag_system import RAGSystem
-from utils import print_usage, setup_logging
+from src.core.config import config
+from src.core.models import ChatRequest, ChatResponse, DocumentResponse, SearchRequest, SearchResponse, AskRequest, ProcessRequest
+from src.search.rag_system import RAGSystem
+from src.core.utils import print_usage, setup_logging
 
 logger = setup_logging()
 

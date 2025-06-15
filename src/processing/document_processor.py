@@ -14,9 +14,9 @@ try:
 except ImportError:
     import pypdf as PyPDF2
 
-from core.models import DocumentResponse, ChunkMetadata
-from processing.text_processing import EnhancedDocumentProcessor
-from core.clients import ClientManager
+from src.core.models import DocumentResponse, ChunkMetadata
+from src.processing.text_processing import EnhancedDocumentProcessor
+from src.core.clients import ClientManager
 
 logger = logging.getLogger(__name__)
 

@@ -5,7 +5,7 @@ Document processing and management API endpoints
 import logging
 from fastapi import APIRouter, UploadFile, File, HTTPException
 
-from core.models import DocumentResponse
+from src.core.models import DocumentResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

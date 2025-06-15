@@ -5,8 +5,8 @@ FastAPI Application Setup
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from core.utils import setup_logging
-from search.rag_system import RAGSystem
+from src.core.utils import setup_logging
+from src.search.rag_system import RAGSystem
 
 logger = setup_logging()
 
@@ -30,7 +30,7 @@ app.add_middleware(
 )
 
 # Import and include routers
-from api.endpoints import system, documents, search
+from src.api.endpoints import system, documents, search
 
 app.include_router(system.router, tags=["system"])
 app.include_router(documents.router, prefix="/api", tags=["documents"])  

@@ -15,7 +15,7 @@ except ImportError:
     NLTK_AVAILABLE = False
     nltk = None
 
-from core.models import ChunkMetadata
+from src.core.models import ChunkMetadata
 
 logger = logging.getLogger(__name__)
 

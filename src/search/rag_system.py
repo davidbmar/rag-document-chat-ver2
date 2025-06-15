@@ -6,14 +6,14 @@ Main RAG System orchestrating all components
 import logging
 from typing import Dict
 
-from core.config import config
-from core.clients import ClientManager
-from processing.document_processor import DocumentProcessor
-from search.search_engine import SearchEngine
-from processing.hierarchical_processor import HierarchicalProcessor
-from processing.paragraph_processor import ParagraphProcessor
-from core.models import DocumentResponse, ChatResponse
-from core.utils import setup_logging, ensure_nltk_data
+from src.core.config import config
+from src.core.clients import ClientManager
+from src.processing.document_processor import DocumentProcessor
+from src.search.search_engine import SearchEngine
+from src.processing.hierarchical_processor import HierarchicalProcessor
+from src.processing.paragraph_processor import ParagraphProcessor
+from src.core.models import DocumentResponse, ChatResponse
+from src.core.utils import setup_logging, ensure_nltk_data
 
 logger = setup_logging()
 

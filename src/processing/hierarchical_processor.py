@@ -16,8 +16,8 @@ except ImportError:
     NLTK_AVAILABLE = False
     nltk = None
 
-from core.models import LogicalGroup, CompressedGroup, HierarchicalResult, ChatResponse
-from core.clients import ClientManager
+from src.core.models import LogicalGroup, CompressedGroup, HierarchicalResult, ChatResponse
+from src.core.clients import ClientManager
 
 logger = logging.getLogger(__name__)
 
@@ -414,7 +414,7 @@ class HierarchicalProcessor:
     def search_with_summaries(self, query: str, top_k_summaries: int = 5, top_k_chunks: int = 3) -> ChatResponse:
         """Search using both summaries and original chunks"""
         
-        from search.search_engine import SearchEngine
+        from src.search.search_engine import SearchEngine
         search_engine = SearchEngine(self.clients)
         
         return search_engine.search_enhanced(query, top_k_chunks, use_summaries=True)

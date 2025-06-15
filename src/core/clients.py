@@ -11,7 +11,7 @@ import boto3
 import chromadb
 from openai import OpenAI
 
-from core.config import core.config
+from src.core.config import config
 
 logger = logging.getLogger(__name__)
 

@@ -9,8 +9,8 @@ import logging
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 
-from core.models import DocumentResponse
-from core.clients import ClientManager
+from src.core.models import DocumentResponse
+from src.core.clients import ClientManager
 
 logger = logging.getLogger(__name__)
 

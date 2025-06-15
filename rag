@@ -116,7 +116,7 @@ class RAGClient:
         result = self._make_request("POST", "/api/ask", json=payload)
         return result
     
-    def upload(self, file_path: str) -> Dict[Any, Any]:
+    def upload(self, file_path: str, force: bool = False) -> Dict[Any, Any]:
         """Upload and process a document"""
         file_path = Path(file_path)
         
@@ -132,7 +132,8 @@ class RAGClient:
         
         with open(file_path, 'rb') as f:
             files = {'file': (file_path.name, f, 'application/octet-stream')}
-            result = self._make_request("POST", "/api/process/upload", files=files)
+            params = {'force': force} if force else {}
+            result = self._make_request("POST", "/api/process/upload", files=files, params=params)
         
         return result
     
@@ -322,6 +323,7 @@ def main():
     
     upload_parser = process_subparsers.add_parser("upload", help="Upload document")
     upload_parser.add_argument("file", help="File to upload")
+    upload_parser.add_argument("--force", action="store_true", help="Overwrite existing document")
     
     summaries_parser = process_subparsers.add_parser("summaries", help="Generate summaries")
     summaries_parser.add_argument("filename", help="Document filename")
@@ -380,10 +382,23 @@ def main():
                 
         elif args.command == "process":
             if args.process_command == "upload":
-                result = client.upload(args.file)
-                print(f"✅ {result['message']}")
-                print(f"   Chunks created: {result['chunks_created']}")
-                print(f"   Processing time: {result['processing_time']:.2f}s")
+                result = client.upload(args.file, force=args.force)
+                
+                # Handle different response statuses
+                if result['status'] == 'already_exists':
+                    print(f"📄 {result['message']}")
+                    print(f"   Document already has {result['chunks_created']} chunks")
+                    print(f"   Use --force to overwrite existing document")
+                elif result['status'] == 'success':
+                    print(f"✅ {result['message']}")
+                    print(f"   Chunks created: {result['chunks_created']}")
+                    print(f"   Processing time: {result['processing_time']:.2f}s")
+                else:
+                    print(f"⚠️ {result['message']}")
+                    if result.get('chunks_created', 0) > 0:
+                        print(f"   Chunks: {result['chunks_created']}")
+                    if result.get('processing_time', 0) > 0:
+                        print(f"   Time: {result['processing_time']:.2f}s")
                 
             elif args.process_command == "summaries":
                 result = client.process_summaries(args.filename)

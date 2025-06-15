@@ -14,9 +14,17 @@ try:
 except ImportError:
     import pypdf as PyPDF2
 
+# Import PyMuPDF if available
+try:
+    import fitz  # PyMuPDF
+    HAS_PYMUPDF = True
+except ImportError:
+    HAS_PYMUPDF = False
+
 from src.core.models import DocumentResponse, ChunkMetadata
 from src.processing.text_processing import EnhancedDocumentProcessor
 from src.core.clients import ClientManager
+from src.core.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -40,15 +48,77 @@ class DocumentExtractor:
             raise
     
     def _extract_pdf_text(self, file_content: bytes) -> str:
-        """Extract text from PDF"""
-        reader = PyPDF2.PdfReader(io.BytesIO(file_content))
+        """Extract text from PDF using configured library"""
+        pdf_library = config.pdf_library.lower()
+        
+        logger.info(f"🔧 PDF extraction config: PDF_LIBRARY={pdf_library}")
+        logger.info(f"📚 PyMuPDF available: {HAS_PYMUPDF}")
+        
+        # Try PyMuPDF first if configured and available
+        if pdf_library == "pymupdf" and HAS_PYMUPDF:
+            logger.info("🚀 Using PyMuPDF for PDF extraction")
+            try:
+                return self._extract_pdf_with_pymupdf(file_content)
+            except Exception as e:
+                logger.warning(f"PyMuPDF extraction failed, falling back to PyPDF2: {e}")
+                return self._extract_pdf_with_pypdf2(file_content)
+        
+        # Use PyPDF2 as default or fallback
+        elif pdf_library == "pypdf2" or not HAS_PYMUPDF:
+            if pdf_library == "pymupdf" and not HAS_PYMUPDF:
+                logger.warning("⚠️ PyMuPDF requested but not installed, using PyPDF2")
+            else:
+                logger.info("🔧 Using PyPDF2 for PDF extraction")
+            return self._extract_pdf_with_pypdf2(file_content)
+        
+        else:
+            logger.warning(f"Unknown PDF library '{pdf_library}', using PyPDF2")
+            return self._extract_pdf_with_pypdf2(file_content)
+    
+    def _extract_pdf_with_pymupdf(self, file_content: bytes) -> str:
+        """Extract text from PDF using PyMuPDF (fitz)"""
         text = ""
         
-        for page_num, page in enumerate(reader.pages):
-            try:
-                text += page.extract_text() + "\n"
-            except Exception as e:
-                logger.warning(f"Failed to extract text from page {page_num}: {e}")
+        try:
+            # Open PDF from bytes
+            doc = fitz.open(stream=file_content, filetype="pdf")
+            
+            for page_num in range(doc.page_count):
+                try:
+                    page = doc[page_num]
+                    page_text = page.get_text()
+                    text += page_text + "\n"
+                except Exception as e:
+                    logger.warning(f"Failed to extract text from page {page_num} with PyMuPDF: {e}")
+            
+            doc.close()
+            logger.info(f"✅ Successfully extracted text with PyMuPDF ({len(text)} chars)")
+            
+        except Exception as e:
+            logger.error(f"PyMuPDF extraction failed: {e}")
+            raise
+        
+        return text.strip()
+    
+    def _extract_pdf_with_pypdf2(self, file_content: bytes) -> str:
+        """Extract text from PDF using PyPDF2"""
+        text = ""
+        
+        try:
+            reader = PyPDF2.PdfReader(io.BytesIO(file_content))
+            
+            for page_num, page in enumerate(reader.pages):
+                try:
+                    page_text = page.extract_text()
+                    text += page_text + "\n"
+                except Exception as e:
+                    logger.warning(f"Failed to extract text from page {page_num} with PyPDF2: {e}")
+            
+            logger.info(f"✅ Successfully extracted text with PyPDF2 ({len(text)} chars)")
+            
+        except Exception as e:
+            logger.error(f"PyPDF2 extraction failed: {e}")
+            raise
         
         return text.strip()
     

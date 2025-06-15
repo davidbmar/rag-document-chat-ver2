@@ -46,6 +46,9 @@ class Config:
     embedding_model: str = "text-embedding-ada-002"
     chat_model: str = "gpt-3.5-turbo"
     
+    # PDF Processing Configuration
+    pdf_library: str = "pymupdf"  # "pymupdf" or "pypdf2"
+    
     # Demo mode
     demo_mode: bool = False
     
@@ -65,6 +68,7 @@ class Config:
         self.max_chunks = int(os.getenv("MAX_CHUNKS", "15"))
         self.embedding_model = os.getenv("EMBEDDING_MODEL", "text-embedding-ada-002")
         self.chat_model = os.getenv("CHAT_MODEL", "gpt-3.5-turbo")
+        self.pdf_library = os.getenv("PDF_LIBRARY", "pymupdf").lower()
         self.demo_mode = os.getenv("DEMO_MODE", "false").lower() == "true"
     
     @property
@@ -100,6 +104,9 @@ class Config:
         
         if self.chroma_port <= 0 or self.chroma_port > 65535:
             errors.append("ChromaDB port must be between 1 and 65535")
+        
+        if self.pdf_library not in ["pymupdf", "pypdf2"]:
+            errors.append("PDF_LIBRARY must be either 'pymupdf' or 'pypdf2'")
         
         return len(errors) == 0, errors
 

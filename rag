@@ -52,8 +52,9 @@ class RAGClient:
     
     def search(self, query: str, top_k: int = 10, collections: Optional[List[str]] = None,
                documents: Optional[List[str]] = None, exclude_documents: Optional[List[str]] = None,
-               threshold: Optional[float] = None, save_results: Optional[str] = None) -> Dict[Any, Any]:
-        """Search documents with filtering"""
+               threshold: Optional[float] = None, save_results: Optional[str] = None,
+               auto_save: bool = True) -> Dict[Any, Any]:
+        """Search documents with filtering and auto-save as collection"""
         print(f"🔍 Searching for: '{query}'")
         
         payload = {
@@ -73,19 +74,52 @@ class RAGClient:
         
         result = self._make_request("POST", "/api/search", json=payload)
         
-        # Save results if requested
+        # Auto-save results as collection with enhanced metadata
+        if auto_save and result.get('results'):
+            # Generate collection name from query
+            safe_query = "".join(c for c in query if c.isalnum() or c in (' ', '-', '_')).strip()
+            safe_query = safe_query.replace(' ', '-').lower()[:30]  # Limit length
+            collection_name = f"{safe_query}-collection"
+            
+            # Add numbered matches and enhanced metadata
+            enhanced_result = result.copy()
+            enhanced_result['collection_name'] = collection_name
+            enhanced_result['created_timestamp'] = self._get_timestamp()
+            
+            # Add match numbers to results
+            for i, match in enumerate(enhanced_result['results'], 1):
+                match['match_number'] = i
+                match['percentage'] = round(match['score'] * 100, 1)
+            
+            # Save to file
+            collection_file = f"{collection_name}.json"
+            with open(collection_file, 'w') as f:
+                json.dump(enhanced_result, f, indent=2)
+            
+            print(f"💾 Auto-saved as collection: {collection_name}")
+            print(f"📁 Collection file: {collection_file}")
+            result['collection_name'] = collection_name
+            result['collection_file'] = collection_file
+        
+        # Manual save if requested
         if save_results:
             with open(save_results, 'w') as f:
                 json.dump(result, f, indent=2)
-            print(f"💾 Search results saved to: {save_results}")
+            print(f"💾 Search results also saved to: {save_results}")
         
         return result
+    
+    def _get_timestamp(self):
+        """Get current timestamp for collections"""
+        from datetime import datetime
+        return datetime.now().isoformat()
     
     def ask(self, question: str, top_k: int = 8, documents: Optional[List[str]] = None,
             exclude_documents: Optional[List[str]] = None, chunk_ids: Optional[List[str]] = None,
             search_id: Optional[str] = None, conversation_history: str = "",
-            search_strategy: str = "enhanced", from_search_file: Optional[str] = None) -> Dict[Any, Any]:
-        """Ask questions with context filtering"""
+            search_strategy: str = "enhanced", from_search_file: Optional[str] = None,
+            from_collection: Optional[str] = None, matches: Optional[List[int]] = None) -> Dict[Any, Any]:
+        """Ask questions with context filtering and collection-based targeting"""
         print(f"💬 Question: '{question}'")
         
         payload = {
@@ -95,8 +129,32 @@ class RAGClient:
             "search_strategy": search_strategy
         }
         
-        # Handle search result reuse
-        if from_search_file:
+        # Handle collection-based targeting
+        if from_collection and matches:
+            try:
+                collection_file = from_collection if from_collection.endswith('.json') else f"{from_collection}.json"
+                with open(collection_file, 'r') as f:
+                    collection_data = json.load(f)
+                
+                # Extract specific matches
+                selected_chunks = []
+                for match_num in matches:
+                    if 1 <= match_num <= len(collection_data.get('results', [])):
+                        result = collection_data['results'][match_num - 1]  # Convert to 0-based index
+                        selected_chunks.append(result['chunk_id'])
+                
+                if selected_chunks:
+                    payload["chunk_ids"] = selected_chunks
+                    print(f"📋 Using matches {matches} from collection: {from_collection}")
+                    print(f"   Targeting {len(selected_chunks)} specific chunks")
+                else:
+                    print(f"⚠️ Warning: No valid matches found for numbers {matches}")
+                    
+            except Exception as e:
+                print(f"⚠️ Warning: Could not load collection {from_collection}: {e}")
+        
+        # Handle other search result reuse methods
+        elif from_search_file:
             try:
                 with open(from_search_file, 'r') as f:
                     search_data = json.load(f)
@@ -104,6 +162,15 @@ class RAGClient:
                 print(f"📋 Using search results from: {from_search_file}")
             except Exception as e:
                 print(f"⚠️ Warning: Could not load search file {from_search_file}: {e}")
+        elif from_collection:
+            try:
+                collection_file = from_collection if from_collection.endswith('.json') else f"{from_collection}.json"
+                with open(collection_file, 'r') as f:
+                    collection_data = json.load(f)
+                payload["search_id"] = collection_data.get("search_id")
+                print(f"📋 Using all results from collection: {from_collection}")
+            except Exception as e:
+                print(f"⚠️ Warning: Could not load collection {from_collection}: {e}")
         elif search_id:
             payload["search_id"] = search_id
         elif documents:
@@ -115,6 +182,45 @@ class RAGClient:
         
         result = self._make_request("POST", "/api/ask", json=payload)
         return result
+    
+    def show_match(self, match_number: int, from_collection: str) -> Dict[Any, Any]:
+        """Show full text of a specific match from a collection"""
+        try:
+            collection_file = from_collection if from_collection.endswith('.json') else f"{from_collection}.json"
+            with open(collection_file, 'r') as f:
+                collection_data = json.load(f)
+            
+            if 1 <= match_number <= len(collection_data.get('results', [])):
+                match = collection_data['results'][match_number - 1]  # Convert to 0-based index
+                print(f"\n📄 Match #{match_number} from {from_collection}")
+                print(f"   Document: {match['document']}")
+                print(f"   Score: {match.get('percentage', round(match['score'] * 100, 1))}%")
+                print(f"   Collection: {match['collection']}")
+                print(f"   Chunk ID: {match['chunk_id']}")
+                print("─" * 60)
+                print(match['content'])
+                print("─" * 60)
+                
+                return {
+                    "status": "success",
+                    "match": match,
+                    "match_number": match_number,
+                    "collection": from_collection
+                }
+            else:
+                print(f"❌ Error: Match number {match_number} not found in collection {from_collection}")
+                print(f"   Collection has {len(collection_data.get('results', []))} matches")
+                return {
+                    "status": "error",
+                    "message": f"Match {match_number} not found"
+                }
+                
+        except Exception as e:
+            print(f"❌ Error loading collection {from_collection}: {e}")
+            return {
+                "status": "error", 
+                "message": str(e)
+            }
     
     def upload(self, file_path: str, force: bool = False) -> Dict[Any, Any]:
         """Upload and process a document"""
@@ -161,10 +267,25 @@ class RAGClient:
         result = self._make_request("DELETE", "/api/documents")
         return result
     
-    def get_collections(self) -> Dict[Any, Any]:
+    def get_collections(self, detailed: bool = False) -> Dict[Any, Any]:
         """Get collections information"""
-        print("🗄️ Getting collections info...")
+        if detailed:
+            print("🗄️ Getting detailed collections info...")
+        else:
+            print("🗄️ Getting collections info...")
         result = self._make_request("GET", "/api/collections")
+        
+        # If detailed, fetch sample content from each collection
+        if detailed and result.get('collections'):
+            for collection in result['collections']:
+                if not collection.get('error'):
+                    try:
+                        # Get a few sample items from each collection
+                        sample_request = self._make_request("GET", f"/api/collections/{collection['name']}/sample")
+                        collection['sample_items'] = sample_request.get('items', [])
+                    except Exception as e:
+                        collection['sample_error'] = str(e)
+        
         return result
     
     def get_status(self) -> Dict[Any, Any]:
@@ -173,30 +294,50 @@ class RAGClient:
         return result
 
 
-def format_search_results(results: Dict[Any, Any], verbose: bool = False):
-    """Format and display search results"""
+def format_search_results(results: Dict[Any, Any], verbose: bool = False, detailed: bool = False):
+    """Format and display search results with numbered matches and percentages"""
     print(f"\n🔍 Search Results ({results['total_results']} found in {results['processing_time']:.2f}s)")
     print(f"   Search ID: {results['search_id']}")
+    
+    # Show collection info if available
+    if results.get('collection_name'):
+        print(f"   Collection: {results['collection_name']}")
+        print(f"   Saved to: {results.get('collection_file', 'N/A')}")
+    
     print(f"   Collections: {', '.join(results['collections_searched'])}")
     print(f"   Documents: {', '.join(results['unique_documents'])}")
     
     if results['results']:
-        print("\n📄 Top Results:")
-        for i, result in enumerate(results['results'][:10], 1):
-            score_bar = "█" * int(result['score'] * 10)
-            print(f"   {i:2d}. [{score_bar:<10}] {result['score']:.3f} - {result['document']}")
-            print(f"       Collection: {result['collection']} | Chunk: {result['chunk_id']}")
+        print("\n📄 Numbered Matches (best first):")
+        for i, result in enumerate(results['results'][:8], 1):  # Show top 8 as discussed
+            # Calculate percentage from score
+            percentage = round(result.get('percentage', result['score'] * 100), 1)
+            score_bar = "█" * max(1, int(result['score'] * 10))
             
-            if verbose:
+            print(f"   {i}. [{percentage:5.1f}%] [{score_bar:<10}] {result['document']}")
+            print(f"      Collection: {result['collection']} | Chunk: {result['chunk_id']}")
+            
+            if detailed:
+                # Show full content with clear separator
+                print(f"      ─── Content ───")
+                print(f"      {result['content']}")
+                print(f"      ─────────────────")
+            elif verbose:
                 content = result['content'][:200] + "..." if len(result['content']) > 200 else result['content']
-                print(f"       Content: {content}")
+                print(f"      Preview: {content}")
             print()
+        
+        # Show usage hint
+        collection_name = results.get('collection_name', 'collection-file')
+        print(f"💡 Ask questions on specific matches:")
+        print(f"   ./rag ask 'your question' --matches 1,3,5 --from-collection {collection_name}")
+        print(f"   ./rag show 2 --from-collection {collection_name}")
     else:
         print("   No results found.")
 
 
-def format_ask_response(response: Dict[Any, Any]):
-    """Format and display ask response"""
+def format_ask_response(response: Dict[Any, Any], detailed: bool = False):
+    """Format and display ask response with optional detailed source content"""
     print(f"\n💬 Answer (generated in {response['processing_time']:.2f}s):")
     print("─" * 60)
     print(response['answer'])
@@ -206,10 +347,23 @@ def format_ask_response(response: Dict[Any, Any]):
         print(f"\n📚 Sources ({len(response['sources'])}):")
         for source in response['sources']:
             print(f"   • {source}")
+        
+        if detailed and response.get('source_chunks'):
+            print(f"\n📄 Detailed Source Content:")
+            for i, chunk in enumerate(response['source_chunks'], 1):
+                print(f"\n   Source #{i}: {chunk.get('document', 'Unknown')}")
+                print(f"   Collection: {chunk.get('collection', 'Unknown')}")
+                print(f"   Score: {chunk.get('score', 0):.3f}")
+                print(f"   ─── Content ───")
+                print(f"   {chunk.get('content', 'No content available')}")
+                print(f"   ─────────────────")
+        elif detailed:
+            print(f"\n💡 Note: Detailed source content not available in this response")
+            print(f"   This feature requires API support for returning source chunks")
 
 
-def format_document_list(doc_list: Dict[Any, Any]):
-    """Format and display document list"""
+def format_document_list(doc_list: Dict[Any, Any], detailed: bool = False):
+    """Format and display document list with optional detailed content"""
     print(f"\n📚 Document Inventory ({doc_list['total_items']} total items)")
     
     if doc_list['documents']:
@@ -218,6 +372,14 @@ def format_document_list(doc_list: Dict[Any, Any]):
             print(f"   • {filename} ({data['total_chunks']} chunks)")
             for collection, count in data['collections'].items():
                 print(f"     └─ {collection}: {count} items")
+            
+            if detailed:
+                # Show guidance for viewing content
+                print(f"     ─── Content Preview ───")
+                safe_name = filename.replace('.', '-').replace(' ', '-').lower()
+                print(f"     To view content, try: ./rag search '{filename}' --detailed")
+                print(f"     Or search specific content from this document")
+                print(f"     ─────────────────────")
     else:
         print("   No documents found.")
     
@@ -303,6 +465,7 @@ def main():
     search_parser.add_argument("--threshold", type=float, help="Minimum similarity score")
     search_parser.add_argument("--save", help="Save results to file")
     search_parser.add_argument("--verbose", "-v", action="store_true", help="Show content preview")
+    search_parser.add_argument("--detailed", "-d", action="store_true", help="Show detailed content for each match")
     
     # Ask command
     ask_parser = subparsers.add_parser("ask", help="Ask questions")
@@ -313,8 +476,11 @@ def main():
     ask_parser.add_argument("--chunks", nargs="+", help="Specific chunk IDs")
     ask_parser.add_argument("--search-id", help="Use cached search results")
     ask_parser.add_argument("--from-search", help="Load search results from file")
+    ask_parser.add_argument("--from-collection", help="Use results from a collection")
+    ask_parser.add_argument("--matches", help="Specific match numbers (comma-separated, e.g., 1,3,5)")
     ask_parser.add_argument("--strategy", choices=["basic", "enhanced", "paragraph"], 
                            default="enhanced", help="Search strategy")
+    ask_parser.add_argument("--detailed", "-d", action="store_true", help="Show detailed source content used")
     ask_parser.add_argument("--interactive", "-i", action="store_true", help="Start interactive mode")
     
     # Process commands
@@ -332,16 +498,23 @@ def main():
     paragraphs_parser.add_argument("filename", help="Document filename")
     
     # List command
-    subparsers.add_parser("list", help="List documents")
+    list_parser = subparsers.add_parser("list", help="List documents")
+    list_parser.add_argument("--detailed", "-d", action="store_true", help="Show detailed document contents")
     
     # Clear command
     subparsers.add_parser("clear", help="Clear all documents")
     
     # Collections command
-    subparsers.add_parser("collections", help="Show collections info")
+    collections_parser = subparsers.add_parser("collections", help="Show collections info")
+    collections_parser.add_argument("--detailed", "-d", action="store_true", help="Show detailed collection contents")
     
     # Status command
     subparsers.add_parser("status", help="Show system status")
+    
+    # Show command
+    show_parser = subparsers.add_parser("show", help="Show full text of a specific match")
+    show_parser.add_argument("match_number", type=int, help="Match number to display")
+    show_parser.add_argument("--from-collection", required=True, help="Collection to load match from")
     
     args = parser.parse_args()
     
@@ -362,12 +535,21 @@ def main():
                 threshold=args.threshold,
                 save_results=args.save
             )
-            format_search_results(results, verbose=args.verbose)
+            format_search_results(results, verbose=args.verbose, detailed=args.detailed)
             
         elif args.command == "ask":
             if args.interactive:
                 interactive_chat(client, args.from_search)
             else:
+                # Parse matches if provided
+                matches = None
+                if args.matches:
+                    try:
+                        matches = [int(x.strip()) for x in args.matches.split(',')]
+                    except ValueError:
+                        print("❌ Error: --matches must be comma-separated numbers (e.g., 1,3,5)")
+                        sys.exit(1)
+                
                 response = client.ask(
                     args.question,
                     top_k=args.top_k,
@@ -376,9 +558,11 @@ def main():
                     chunk_ids=args.chunks,
                     search_id=args.search_id,
                     search_strategy=args.strategy,
-                    from_search_file=args.from_search
+                    from_search_file=args.from_search,
+                    from_collection=args.from_collection,
+                    matches=matches
                 )
-                format_ask_response(response)
+                format_ask_response(response, detailed=args.detailed)
                 
         elif args.command == "process":
             if args.process_command == "upload":
@@ -414,7 +598,7 @@ def main():
                 
         elif args.command == "list":
             doc_list = client.list_documents()
-            format_document_list(doc_list)
+            format_document_list(doc_list, detailed=args.detailed)
             
         elif args.command == "clear":
             result = client.clear_documents()
@@ -423,7 +607,7 @@ def main():
                 print(f"   • {collection['name']}: {collection['items_deleted']} items deleted")
                 
         elif args.command == "collections":
-            result = client.get_collections()
+            result = client.get_collections(detailed=args.detailed)
             print(f"\n🗄️ Collections ({result['total_collections']} total)")
             for collection in result['collections']:
                 if 'error' in collection:
@@ -432,6 +616,17 @@ def main():
                     print(f"   • {collection['name']}: {collection['item_count']} items")
                     if collection['unique_documents']:
                         print(f"     Documents: {', '.join(collection['unique_documents'])}")
+                    
+                    if args.detailed:
+                        if collection.get('sample_items'):
+                            print(f"     ─── Sample Content ───")
+                            for i, item in enumerate(collection['sample_items'][:2], 1):  # Show 2 samples
+                                print(f"     Sample {i}: {item.get('content', 'No content')[:100]}...")
+                            print(f"     ─────────────────────")
+                        elif collection.get('sample_error'):
+                            print(f"     ⚠️ Could not fetch samples: {collection['sample_error']}")
+                        else:
+                            print(f"     💡 Use: ./rag search 'query' --collections {collection['name']} --detailed")
                         
         elif args.command == "status":
             status = client.get_status()
@@ -443,6 +638,10 @@ def main():
                     print(f"   ❌ {service.title()}: Error")
                 else:
                     print(f"   ⚠️ {service.title()}: {state}")
+                    
+        elif args.command == "show":
+            result = client.show_match(args.match_number, args.from_collection)
+            # Result is displayed within the show_match method
                     
     except Exception as e:
         print(f"❌ Error: {e}")

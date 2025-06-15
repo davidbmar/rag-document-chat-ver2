@@ -15,6 +15,7 @@ nltk==3.9.1
 
 # Document processing
 PyPDF2==3.0.1
+PyMuPDF==1.26.0
 python-docx==0.8.11
 
 # Cloud services

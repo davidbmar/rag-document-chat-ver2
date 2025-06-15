@@ -14,7 +14,7 @@ router = APIRouter()
 @router.post("/process/upload", response_model=DocumentResponse)
 async def process_upload(file: UploadFile = File(...)):
     """Upload and process document with basic chunking"""
-    from api.app import rag_system
+    from src.api.app import rag_system
     
     try:
         if not file.filename:
@@ -37,7 +37,7 @@ async def process_upload(file: UploadFile = File(...)):
 @router.post("/process/{filename}/summaries", response_model=DocumentResponse)
 async def process_summaries(filename: str):
     """Generate smart summaries for a processed document"""
-    from api.app import rag_system
+    from src.api.app import rag_system
     
     try:
         logger.info(f"🧠 Processing summaries for: {filename}")
@@ -56,7 +56,7 @@ async def process_summaries(filename: str):
 @router.post("/process/{filename}/paragraphs", response_model=DocumentResponse)
 async def process_paragraphs(filename: str):
     """Generate paragraph summaries for a processed document"""
-    from api.app import rag_system
+    from src.api.app import rag_system
     
     try:
         logger.info(f"📝 Processing paragraphs for: {filename}")
@@ -75,7 +75,7 @@ async def process_paragraphs(filename: str):
 @router.get("/documents")
 async def list_documents():
     """List all processed documents"""
-    from api.app import rag_system
+    from src.api.app import rag_system
     
     try:
         # Get document inventory from ChromaDB
@@ -131,7 +131,7 @@ async def list_documents():
 @router.delete("/documents")
 async def clear_all_documents():
     """Clear all documents and reset system"""
-    from api.app import rag_system
+    from src.api.app import rag_system
     
     try:
         logger.info("🧹 API Clear all documents request")

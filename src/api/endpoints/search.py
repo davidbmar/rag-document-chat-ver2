@@ -14,7 +14,7 @@ router = APIRouter()
 @router.post("/search", response_model=SearchResponse)
 async def search_documents(request: SearchRequest):
     """Search documents with filtering and result persistence"""
-    from api.app import rag_system
+    from src.api.app import rag_system
     
     try:
         logger.info(f"🔍 API Search request: {request.query}")
@@ -28,7 +28,7 @@ async def search_documents(request: SearchRequest):
 @router.post("/ask", response_model=ChatResponse)
 async def ask_question(request: AskRequest):
     """Ask questions with context filtering and search result reuse"""
-    from api.app import rag_system
+    from src.api.app import rag_system
     
     try:
         logger.info(f"💬 API Ask request: {request.question}")

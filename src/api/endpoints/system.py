@@ -10,14 +10,14 @@ router = APIRouter()
 @router.get("/status")
 async def get_status():
     """Get system status"""
-    from api.app import rag_system
+    from src.api.app import rag_system
     return rag_system.get_system_status()
 
 
 @router.get("/api/collections")
 async def get_collections_info():
     """Get detailed information about all ChromaDB collections"""
-    from api.app import rag_system
+    from src.api.app import rag_system
     import logging
     
     logger = logging.getLogger(__name__)

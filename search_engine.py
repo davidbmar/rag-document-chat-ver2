@@ -4,10 +4,11 @@ Search and retrieval engine for RAG Document Chat System
 """
 
 import time
+import uuid
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
-from models import ChatResponse
+from models import ChatResponse, SearchRequest, SearchResponse, SearchResult, AskRequest
 from clients import ClientManager
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,231 @@ class SearchEngine:
             "paragraph_summaries",
             {"description": "Paragraph-level summaries for wider context search"}
         )
+        
+        # Store for search result persistence
+        self._search_cache = {}
+    
+    def search_documents(self, request: SearchRequest) -> SearchResponse:
+        """Enhanced search with filtering and result persistence"""
+        start_time = time.time()
+        search_id = str(uuid.uuid4())
+        
+        try:
+            logger.info(f"🔍 Enhanced search query: {request.query}")
+            
+            # Generate query embedding
+            query_embedding = self.clients.openai.get_embedding(request.query)
+            
+            # Determine which collections to search
+            collections_to_search = []
+            if request.collections:
+                if "documents" in request.collections:
+                    collections_to_search.append(("documents", self.document_collection))
+                if "summaries" in request.collections:
+                    collections_to_search.append(("logical_summaries", self.summary_collection))
+                if "paragraphs" in request.collections:
+                    collections_to_search.append(("paragraph_summaries", self.paragraph_collection))
+            else:
+                # Search all collections by default
+                collections_to_search = [
+                    ("documents", self.document_collection),
+                    ("logical_summaries", self.summary_collection),
+                    ("paragraph_summaries", self.paragraph_collection)
+                ]
+            
+            all_results = []
+            collections_searched = []
+            
+            for collection_name, collection in collections_to_search:
+                try:
+                    # Build where clause for filtering
+                    where_clause = {}
+                    if request.documents:
+                        where_clause["filename"] = {"$in": request.documents}
+                    elif request.exclude_documents:
+                        where_clause["filename"] = {"$nin": request.exclude_documents}
+                    
+                    # Search this collection
+                    results = collection.query(
+                        query_embeddings=[query_embedding],
+                        n_results=request.top_k,
+                        where=where_clause if where_clause else None
+                    )
+                    
+                    collections_searched.append(collection_name)
+                    
+                    # Process results
+                    if results['documents'][0]:
+                        for i, (content, metadata, distance) in enumerate(zip(
+                            results['documents'][0],
+                            results['metadatas'][0],
+                            results['distances'][0]
+                        )):
+                            # Convert distance to similarity score
+                            score = 1 - distance if distance < 1 else 0
+                            
+                            # Apply threshold filter
+                            if request.threshold and score < request.threshold:
+                                continue
+                            
+                            chunk_id = results['ids'][0][i]
+                            
+                            result = SearchResult(
+                                content=content,
+                                score=round(score, 4),
+                                document=metadata.get('filename', 'unknown'),
+                                chunk_id=chunk_id,
+                                collection=collection_name,
+                                metadata=metadata
+                            )
+                            all_results.append(result)
+                            
+                except Exception as e:
+                    logger.warning(f"Error searching collection {collection_name}: {e}")
+                    continue
+            
+            # Sort all results by score
+            all_results.sort(key=lambda x: x.score, reverse=True)
+            
+            # Limit to requested number
+            all_results = all_results[:request.top_k]
+            
+            # Extract unique documents and chunk IDs
+            unique_documents = list(set(result.document for result in all_results))
+            chunk_ids = [result.chunk_id for result in all_results]
+            
+            response = SearchResponse(
+                results=all_results,
+                search_id=search_id,
+                query=request.query,
+                total_results=len(all_results),
+                unique_documents=unique_documents,
+                chunk_ids=chunk_ids,
+                processing_time=time.time() - start_time,
+                collections_searched=collections_searched
+            )
+            
+            # Cache search results for reuse
+            self._search_cache[search_id] = response
+            
+            logger.info(f"📚 Found {len(all_results)} results across {len(collections_searched)} collections")
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Enhanced search failed: {e}")
+            return SearchResponse(
+                results=[],
+                search_id=search_id,
+                query=request.query,
+                total_results=0,
+                unique_documents=[],
+                chunk_ids=[],
+                processing_time=time.time() - start_time,
+                collections_searched=[]
+            )
+    
+    def ask_with_context(self, request: AskRequest) -> ChatResponse:
+        """Ask questions using filtered search results or cached search"""
+        start_time = time.time()
+        
+        try:
+            logger.info(f"💬 Processing question: {request.question}")
+            
+            # Determine context source
+            context_chunks = []
+            sources = []
+            
+            if request.search_id and request.search_id in self._search_cache:
+                # Use cached search results
+                cached_search = self._search_cache[request.search_id]
+                context_chunks = [result.content for result in cached_search.results[:request.top_k]]
+                sources = [f"{result.document} (via search)" for result in cached_search.results[:request.top_k]]
+                logger.info(f"📋 Using cached search results: {len(context_chunks)} chunks")
+                
+            elif request.chunk_ids:
+                # Use specific chunks
+                context_chunks, sources = self._get_chunks_by_ids(request.chunk_ids)
+                logger.info(f"🎯 Using specific chunks: {len(context_chunks)} chunks")
+                
+            else:
+                # Perform new search with filtering
+                search_request = SearchRequest(
+                    query=request.question,
+                    top_k=request.top_k,
+                    documents=request.documents,
+                    exclude_documents=request.exclude_documents
+                )
+                search_response = self.search_documents(search_request)
+                
+                context_chunks = [result.content for result in search_response.results]
+                sources = [result.document for result in search_response.results]
+                logger.info(f"🔍 New search found: {len(context_chunks)} chunks")
+            
+            if not context_chunks:
+                return ChatResponse(
+                    answer="No relevant content found for your question. Please check your search criteria or upload relevant documents.",
+                    sources=[],
+                    processing_time=time.time() - start_time
+                )
+            
+            # Generate answer using appropriate strategy
+            context = "\n\n".join(context_chunks)
+            
+            if request.search_strategy == "paragraph":
+                answer = self._generate_paragraph_answer(request.question, context, request.conversation_history)
+            elif request.search_strategy == "enhanced":
+                answer = self._generate_enhanced_answer(request.question, context, request.conversation_history)
+            else:
+                answer = self._generate_answer(request.question, context, request.conversation_history)
+            
+            processing_time = time.time() - start_time
+            
+            logger.info(f"💬 Generated answer in {processing_time:.2f}s")
+            
+            return ChatResponse(
+                answer=answer,
+                sources=list(set(sources)),
+                processing_time=processing_time
+            )
+            
+        except Exception as e:
+            logger.error(f"Ask with context failed: {e}")
+            return ChatResponse(
+                answer=f"Sorry, I encountered an error: {str(e)}",
+                sources=[],
+                processing_time=time.time() - start_time
+            )
+    
+    def _get_chunks_by_ids(self, chunk_ids: List[str]) -> tuple[List[str], List[str]]:
+        """Retrieve specific chunks by their IDs"""
+        context_chunks = []
+        sources = []
+        
+        # Search across all collections for the chunk IDs
+        collections = [
+            ("documents", self.document_collection),
+            ("logical_summaries", self.summary_collection),
+            ("paragraph_summaries", self.paragraph_collection)
+        ]
+        
+        for collection_name, collection in collections:
+            try:
+                # Get chunks by ID
+                results = collection.get(ids=chunk_ids)
+                
+                if results['documents']:
+                    for i, content in enumerate(results['documents']):
+                        if i < len(results['metadatas']) and results['metadatas'][i]:
+                            filename = results['metadatas'][i].get('filename', 'unknown')
+                            context_chunks.append(content)
+                            sources.append(f"{filename} ({collection_name})")
+                            
+            except Exception as e:
+                logger.warning(f"Error getting chunks from {collection_name}: {e}")
+                continue
+        
+        return context_chunks, sources
     
     def search_and_answer(self, query: str, top_k: int = 3, conversation_history: str = "") -> ChatResponse:
         """Search documents and generate answer using RAG"""

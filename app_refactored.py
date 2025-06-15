@@ -20,7 +20,7 @@ except ImportError:
     st = None
 
 from config import config
-from models import ChatRequest, ChatResponse, DocumentResponse
+from models import ChatRequest, ChatResponse, DocumentResponse, SearchRequest, SearchResponse, AskRequest, ProcessRequest
 from rag_system import RAGSystem
 from utils import print_usage, setup_logging
 
@@ -99,6 +99,227 @@ async def chat_with_documents(request: ChatRequest):
 async def get_status():
     """Get system status"""
     return rag_system.get_system_status()
+
+
+# Enhanced API Endpoints for Chained Search-Ask Workflow
+
+@app.post("/api/search", response_model=SearchResponse)
+async def search_documents(request: SearchRequest):
+    """Search documents with filtering and result persistence"""
+    try:
+        logger.info(f"🔍 API Search request: {request.query}")
+        result = rag_system.search_engine.search_documents(request)
+        return result
+    except Exception as e:
+        logger.error(f"Search API error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ask", response_model=ChatResponse)
+async def ask_question(request: AskRequest):
+    """Ask questions with context filtering and search result reuse"""
+    try:
+        logger.info(f"💬 API Ask request: {request.question}")
+        result = rag_system.search_engine.ask_with_context(request)
+        return result
+    except Exception as e:
+        logger.error(f"Ask API error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/process/upload", response_model=DocumentResponse)
+async def process_upload(file: UploadFile = File(...)):
+    """Upload and process document with basic chunking"""
+    try:
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="No filename provided")
+        
+        if not file.filename.lower().endswith(('.pdf', '.txt')):
+            raise HTTPException(status_code=400, detail="Only PDF and TXT files are supported")
+        
+        content = await file.read()
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail="Empty file")
+        
+        result = await rag_system.process_document(content, file.filename)
+        return result
+    except Exception as e:
+        logger.error(f"Process upload error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/process/{filename}/summaries", response_model=DocumentResponse)
+async def process_summaries(filename: str):
+    """Generate smart summaries for a processed document"""
+    try:
+        logger.info(f"🧠 Processing summaries for: {filename}")
+        result = await rag_system.process_document_hierarchically(filename)
+        return DocumentResponse(
+            status=result.status,
+            message=result.message,
+            chunks_created=result.summaries_created,
+            processing_time=result.total_processing_time
+        )
+    except Exception as e:
+        logger.error(f"Process summaries error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/process/{filename}/paragraphs", response_model=DocumentResponse)
+async def process_paragraphs(filename: str):
+    """Generate paragraph summaries for a processed document"""
+    try:
+        logger.info(f"📝 Processing paragraphs for: {filename}")
+        result = await rag_system.process_document_paragraphs(filename)
+        return DocumentResponse(
+            status=result.status,
+            message=result.message,
+            chunks_created=result.paragraphs_processed,
+            processing_time=result.total_processing_time
+        )
+    except Exception as e:
+        logger.error(f"Process paragraphs error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/documents")
+async def list_documents():
+    """List all processed documents"""
+    try:
+        # Get document inventory from ChromaDB
+        status_data = {
+            'documents': {},
+            'total_items': 0,
+            'collections': []
+        }
+        
+        # Check all collections
+        collections = rag_system.clients.chromadb.client.list_collections()
+        
+        for collection_info in collections:
+            collection_name = collection_info.name
+            try:
+                collection = rag_system.clients.chromadb.get_or_create_collection(collection_name)
+                items = collection.get()
+                
+                count = len(items.get('ids', []))
+                status_data['total_items'] += count
+                status_data['collections'].append({
+                    'name': collection_name,
+                    'count': count
+                })
+                
+                # Track documents
+                if 'metadatas' in items and items['metadatas']:
+                    for metadata in items['metadatas']:
+                        if isinstance(metadata, dict) and 'filename' in metadata:
+                            filename = metadata['filename']
+                            if filename not in status_data['documents']:
+                                status_data['documents'][filename] = {
+                                    'collections': {},
+                                    'total_chunks': 0
+                                }
+                            
+                            if collection_name not in status_data['documents'][filename]['collections']:
+                                status_data['documents'][filename]['collections'][collection_name] = 0
+                            
+                            status_data['documents'][filename]['collections'][collection_name] += 1
+                            status_data['documents'][filename]['total_chunks'] += 1
+                            
+            except Exception as e:
+                logger.warning(f"Error accessing collection {collection_name}: {e}")
+        
+        return status_data
+        
+    except Exception as e:
+        logger.error(f"List documents error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/documents")
+async def clear_all_documents():
+    """Clear all documents and reset system"""
+    try:
+        logger.info("🧹 API Clear all documents request")
+        
+        # Get all collections
+        collections = rag_system.clients.chromadb.client.list_collections()
+        cleared_collections = []
+        
+        for collection_info in collections:
+            collection_name = collection_info.name
+            try:
+                collection = rag_system.clients.chromadb.get_or_create_collection(collection_name)
+                
+                # Get all items to count them
+                items = collection.get()
+                item_count = len(items.get('ids', []))
+                
+                if item_count > 0:
+                    # Clear the collection
+                    collection.delete(ids=items['ids'])
+                    cleared_collections.append({
+                        'name': collection_name,
+                        'items_deleted': item_count
+                    })
+                    
+            except Exception as e:
+                logger.warning(f"Error clearing collection {collection_name}: {e}")
+        
+        return {
+            'status': 'success',
+            'message': f'Cleared {len(cleared_collections)} collections',
+            'cleared_collections': cleared_collections
+        }
+        
+    except Exception as e:
+        logger.error(f"Clear documents error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/collections")
+async def get_collections_info():
+    """Get detailed information about all ChromaDB collections"""
+    try:
+        collections_info = []
+        
+        collections = rag_system.clients.chromadb.client.list_collections()
+        
+        for collection_info in collections:
+            collection_name = collection_info.name
+            try:
+                collection = rag_system.clients.chromadb.get_or_create_collection(collection_name)
+                items = collection.get()
+                
+                # Extract unique filenames
+                filenames = set()
+                if 'metadatas' in items and items['metadatas']:
+                    for metadata in items['metadatas']:
+                        if isinstance(metadata, dict) and 'filename' in metadata:
+                            filenames.add(metadata['filename'])
+                
+                collections_info.append({
+                    'name': collection_name,
+                    'item_count': len(items.get('ids', [])),
+                    'unique_documents': list(filenames),
+                    'sample_ids': items.get('ids', [])[:3]
+                })
+                
+            except Exception as e:
+                collections_info.append({
+                    'name': collection_name,
+                    'error': str(e)
+                })
+        
+        return {
+            'collections': collections_info,
+            'total_collections': len(collections_info)
+        }
+        
+    except Exception as e:
+        logger.error(f"Collections info error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # Streamlit Interface
 def create_streamlit_app():
@@ -313,8 +534,8 @@ def main():
             create_streamlit_app()
         elif sys.argv[1] == "api":
             import uvicorn
-            logger.info("🚀 Starting FastAPI server...")
-            uvicorn.run(app, host="0.0.0.0", port=8001)
+            logger.info(f"🚀 Starting FastAPI server on {config.api_host}:{config.api_port}...")
+            uvicorn.run(app, host=config.api_host, port=config.api_port)
         else:
             print_usage()
     else:
@@ -323,10 +544,10 @@ def main():
             create_streamlit_app()
         else:
             print("Streamlit not available. Starting API server instead...")
-            print("Access the API at: http://localhost:8001")
-            print("API docs at: http://localhost:8001/docs")
+            print(f"Access the API at: {config.api_url}")
+            print(f"API docs at: {config.api_url}/docs")
             import uvicorn
-            uvicorn.run(app, host="0.0.0.0", port=8001)
+            uvicorn.run(app, host=config.api_host, port=config.api_port)
 
 if __name__ == "__main__":
     main()

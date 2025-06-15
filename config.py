@@ -33,6 +33,10 @@ class Config:
     chroma_host: str = "localhost"
     chroma_port: int = 8002
     
+    # API Server Configuration
+    api_host: str = "0.0.0.0"
+    api_port: int = 8003
+    
     # Processing Configuration
     chunk_size: int = 1000
     chunk_overlap: int = 100
@@ -54,6 +58,8 @@ class Config:
         self.s3_bucket = os.getenv("S3_BUCKET", "")
         self.chroma_host = os.getenv("CHROMA_HOST", "localhost")
         self.chroma_port = int(os.getenv("CHROMA_PORT", "8002"))
+        self.api_host = os.getenv("API_HOST", "0.0.0.0")
+        self.api_port = int(os.getenv("API_PORT", "8003"))
         self.chunk_size = int(os.getenv("CHUNK_SIZE", "1000"))
         self.chunk_overlap = int(os.getenv("CHUNK_OVERLAP", "100"))
         self.max_chunks = int(os.getenv("MAX_CHUNKS", "15"))
@@ -70,6 +76,11 @@ class Config:
     def openai_enabled(self) -> bool:
         """Check if OpenAI is properly configured"""
         return bool(self.openai_api_key and self.openai_api_key.startswith("sk-"))
+    
+    @property
+    def api_url(self) -> str:
+        """Get the full API URL"""
+        return f"http://{self.api_host}:{self.api_port}"
     
     def validate(self) -> tuple[bool, list[str]]:
         """Validate configuration and return status and errors"""

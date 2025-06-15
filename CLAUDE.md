@@ -1,0 +1,1 @@
+- Remember to think step by step, and explicitly review the logs to get data on what happened. If there is not enough information in the logs add more, but to save make use of debug, verbose or limited logs or standard logging info.

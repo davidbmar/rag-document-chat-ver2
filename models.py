@@ -79,3 +79,54 @@ class HierarchicalResult:
     total_processing_time: float
     compression_stats: Dict
     groups: List[CompressedGroup]
+
+
+class SearchRequest(BaseModel):
+    """Request model for search endpoint"""
+    query: str
+    top_k: int = 10
+    collections: Optional[List[str]] = None  # Filter by collection names
+    documents: Optional[List[str]] = None    # Filter by document filenames
+    exclude_documents: Optional[List[str]] = None  # Exclude specific documents
+    threshold: Optional[float] = None        # Minimum similarity score
+    return_chunks: bool = True               # Include chunk IDs in response
+
+
+class SearchResult(BaseModel):
+    """Individual search result"""
+    content: str
+    score: float
+    document: str
+    chunk_id: str
+    collection: str
+    metadata: Dict
+
+
+class SearchResponse(BaseModel):
+    """Response model for search endpoint"""
+    results: List[SearchResult]
+    search_id: str                          # Unique ID for this search
+    query: str
+    total_results: int
+    unique_documents: List[str]             # List of unique document names
+    chunk_ids: List[str]                    # List of all chunk IDs found
+    processing_time: float
+    collections_searched: List[str]
+
+
+class AskRequest(BaseModel):
+    """Enhanced request model for ask endpoint"""
+    question: str
+    top_k: int = 8
+    documents: Optional[List[str]] = None           # Filter to specific documents
+    exclude_documents: Optional[List[str]] = None  # Exclude specific documents
+    chunk_ids: Optional[List[str]] = None          # Use specific chunks only
+    search_id: Optional[str] = None                # Use previous search results
+    conversation_history: Optional[str] = ""
+    search_strategy: Optional[str] = "enhanced"    # basic, enhanced, paragraph
+
+
+class ProcessRequest(BaseModel):
+    """Request model for document processing"""
+    filename: str
+    process_type: str  # "basic", "summaries", "paragraphs"

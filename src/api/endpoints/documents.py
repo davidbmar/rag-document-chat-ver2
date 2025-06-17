@@ -21,8 +21,8 @@ async def process_upload(file: UploadFile = File(...), force: bool = False):
         if not file.filename:
             raise HTTPException(status_code=400, detail="No filename provided")
         
-        if not file.filename.lower().endswith(('.pdf', '.txt')):
-            raise HTTPException(status_code=400, detail="Only PDF and TXT files are supported")
+        if not file.filename.lower().endswith(('.pdf', '.txt', '.png', '.jpg', '.jpeg')):
+            raise HTTPException(status_code=400, detail="Only PDF, TXT, and image files are supported")
         
         content = await file.read()
         if len(content) == 0:

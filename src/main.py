@@ -18,7 +18,7 @@ except ImportError:
     st = None
 
 from core.utils import print_usage, setup_logging
-from core.config import core.config
+from core.config import config
 
 logger = setup_logging()
 

@@ -117,11 +117,12 @@ LOG_LEVEL=INFO
 ./start.sh
 ```
 
-Choose from 4 options:
+Choose from 5 options:
 1. **Web Interface** (Streamlit) - Interactive document chat
 2. **API Server** (FastAPI) - REST API for integration
-3. **Both interfaces** - Run simultaneously
-4. **Background mode** - Run as daemon services
+3. **Modern UI** (Next.js) - Beautiful shadcn/ui interface with full API integration
+4. **Both interfaces** - Run simultaneously
+5. **Background mode** - Run as daemon services
 
 ### Manual Commands
 
@@ -137,6 +138,15 @@ source rag_env/bin/activate
 python3 app_refactored.py
 ```
 
+#### Modern UI (Next.js)
+```bash
+# Install Node.js dependencies (first time only)
+cd src/ui && npm install
+
+# Start the development server
+npm run dev
+```
+
 #### RAG CLI (Executable)
 ```bash
 # Can be run from anywhere in the project
@@ -148,6 +158,7 @@ python3 app_refactored.py
 
 ### Access URLs
 - **Web Interface**: http://localhost:8501 (or your-server-ip:8501)
+- **Modern UI**: http://localhost:3004 (or your-server-ip:3004)
 - **API Server**: http://localhost:8000 (or your-server-ip:8000)
 - **API Documentation**: http://localhost:8000/docs
 
@@ -269,6 +280,7 @@ Each processing step provides detailed metrics:
 ### Security Group Configuration
 For external access, configure your EC2 security group to allow:
 - **Port 8501** (Streamlit Web Interface)
+- **Port 3004** (Modern Next.js UI)
 - **Port 8000** (FastAPI Server)
 - **Port 22** (SSH access)
 - **Port 8002** (ChromaDB - internal only, not needed for external access)
@@ -276,6 +288,7 @@ For external access, configure your EC2 security group to allow:
 ### Firewall Commands (if using UFW)
 ```bash
 sudo ufw allow 8501/tcp
+sudo ufw allow 3004/tcp
 sudo ufw allow 8000/tcp
 sudo ufw allow 22/tcp
 ```

@@ -112,3 +112,10 @@ app.py.backup
 # Local configuration overrides
 config_local.py
 settings_local.py
+src/ui/modern/node_modules/
+
+# UI build artifacts and dependencies
+src/ui/modern/node_modules/
+src/ui/modern/.next/
+src/ui/node_modules/
+*.log

@@ -141,7 +141,7 @@ python3 app_refactored.py
 #### Modern UI (Next.js)
 ```bash
 # Install Node.js dependencies (first time only)
-cd src/ui && npm install
+cd src/ui/modern && npm install
 
 # Start the development server
 npm run dev

@@ -16,18 +16,19 @@ NC='\033[0m' # No Color
 
 echo -e "${BLUE}🚀 Starting RAG Document Chat Modern UI (Next.js)${NC}"
 
-# Navigate to project root
-cd "$PROJECT_ROOT"
+# Navigate to modern UI directory
+UI_MODERN_DIR="$PROJECT_ROOT/src/ui/modern"
+cd "$UI_MODERN_DIR"
 
 # Check for package.json
 if [ ! -f "package.json" ]; then
-    echo -e "${RED}❌ package.json not found in project root${NC}"
+    echo -e "${RED}❌ package.json not found in modern UI directory${NC}"
     exit 1
 fi
 
 # Check for ui.tsx (main UI component)
 if [ ! -f "ui.tsx" ]; then
-    echo -e "${RED}❌ ui.tsx not found in project root${NC}"
+    echo -e "${RED}❌ ui.tsx not found in modern UI directory${NC}"
     exit 1
 fi
 

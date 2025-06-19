@@ -10,6 +10,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
+import rehypeHighlight from "rehype-highlight"
 import {
   Upload,
   Search,
@@ -53,6 +56,7 @@ export default function RAGDocumentChatUI() {
   const [lastSearchId, setLastSearchId] = useState<string | null>(null)
   const [searchContext, setSearchContext] = useState<SearchContext | null>(null)
   const [useSearchContext, setUseSearchContext] = useState(false)
+  const [searchStrategy, setSearchStrategy] = useState<'basic' | 'enhanced' | 'paragraph'>('enhanced')
   
   // Loading States
   const [isLoading, setIsLoading] = useState(false)
@@ -60,6 +64,10 @@ export default function RAGDocumentChatUI() {
   const [isAsking, setIsAsking] = useState(false)
   const [answer, setAnswer] = useState<string | null>(null)
   const [answerSources, setAnswerSources] = useState<string[]>([])
+  const [conversationHistory, setConversationHistory] = useState<Array<{question: string, answer: string, sources: string[], timestamp: Date, usedContext: boolean, searchStrategy: string}>>([])  
+  
+  // System Prompt (Answer Style)
+  const [systemPrompt, setSystemPrompt] = useState<string>("Create a short brief summary at the top. Then reply your answer in Markdown.")
   
   // Error State
   const [error, setError] = useState<string | null>(null)
@@ -119,7 +127,10 @@ export default function RAGDocumentChatUI() {
       const status = await apiClient.getStatus()
       setSystemStatus(status)
     } catch (err) {
+      console.error('System status error:', err)
       setError(formatErrorForUser(err))
+      // Reset system status on error to avoid showing stale data
+      setSystemStatus(null)
     }
   }
   
@@ -180,18 +191,44 @@ export default function RAGDocumentChatUI() {
     
     setIsAsking(true)
     try {
+      // Combine system prompt with user question
+      const enhancedQuestion = systemPrompt.trim() ? `${systemPrompt}\n\n${question}` : question
+      
       const request: any = {
-        question,
-        top_k: 8
+        question: enhancedQuestion,
+        top_k: 8,
+        search_strategy: searchStrategy
       }
       
       if (useSearchContext && searchContext?.search_id) {
         request.search_id = searchContext.search_id
       }
       
+      // Add conversation history to the request
+      if (conversationHistory.length > 0) {
+        const recentHistory = conversationHistory
+          .slice(-3) // Last 3 Q&A pairs
+          .map(h => `Q: ${h.question}\nA: ${h.answer}`)
+          .join('\n\n')
+        request.conversation_history = recentHistory
+      }
+      
       const response = await apiClient.ask(request)
       setAnswer(response.answer)
       setAnswerSources(response.sources)
+      
+      // Add to conversation history
+      setConversationHistory(prev => [...prev, {
+        question,
+        answer: response.answer,
+        sources: response.sources || [],
+        timestamp: new Date(),
+        usedContext: useSearchContext,
+        searchStrategy: searchStrategy
+      }])
+      
+      // Clear the question input
+      setQuestion('')
     } catch (err) {
       setError(formatErrorForUser(err))
     } finally {
@@ -210,6 +247,7 @@ export default function RAGDocumentChatUI() {
       setSearchContext(null)
       setAnswer(null)
       setAnswerSources([])
+      setConversationHistory([])
       await loadSystemStatus()
     } catch (err) {
       setError(formatErrorForUser(err))
@@ -338,11 +376,16 @@ export default function RAGDocumentChatUI() {
                     <div>
                       <CardTitle className="flex items-center gap-2">
                         <FileText className="w-5 h-5" />
-                        Documents ({documents.length})
+                        Documents ({Object.keys(documents).length})
                       </CardTitle>
                       <CardDescription>Manage your uploaded documents</CardDescription>
                     </div>
-                    <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="text-red-600 hover:text-red-700"
+                      onClick={handleClearDocuments}
+                    >
                       <Trash2 className="w-4 h-4 mr-1" />
                       Clear All
                     </Button>
@@ -467,7 +510,7 @@ export default function RAGDocumentChatUI() {
                       <Database className="w-4 h-4" />
                       <span>
                         Search ID: {lastSearchId} • {searchResults.length} results from{" "}
-                        {[...new Set(searchResults.map((r) => r.document))].length} documents
+                        {Array.from(new Set(searchResults.map((r) => r.document))).length} documents
                       </span>
                     </div>
                   </div>
@@ -518,9 +561,9 @@ export default function RAGDocumentChatUI() {
 
           {/* Ask Tab */}
           <TabsContent value="ask" className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Question Input */}
-              <div className="lg:col-span-2">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-300px)]">
+              {/* Left Column: Question Input & Answer (2/3 width) */}
+              <div className="lg:col-span-2 flex flex-col space-y-6">
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -589,52 +632,81 @@ export default function RAGDocumentChatUI() {
                       </Button>
                     </div>
 
-                    {/* Context Selection Options */}
-                    <div className="grid grid-cols-3 gap-2 text-xs">
-                      <Button
-                        variant={useSearchContext ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setUseSearchContext(true)}
-                        disabled={!searchContext}
-                      >
-                        Search Results Context
-                      </Button>
-                      <Button variant="outline" size="sm">
-                        Specific Documents
-                      </Button>
-                      <Button variant="outline" size="sm">
-                        All Documents
-                      </Button>
+                    {/* Search Strategy Options */}
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Search Strategy:</label>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <Button
+                          variant={searchStrategy === 'basic' ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setSearchStrategy('basic')}
+                        >
+                          Basic
+                        </Button>
+                        <Button
+                          variant={searchStrategy === 'enhanced' ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setSearchStrategy('enhanced')}
+                        >
+                          Enhanced
+                        </Button>
+                        <Button
+                          variant={searchStrategy === 'paragraph' ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setSearchStrategy('paragraph')}
+                        >
+                          Paragraph
+                        </Button>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
 
                 {/* Answer Display */}
                 {answer && (
-                  <Card>
+                  <Card className="flex-1 min-h-0">
                     <CardHeader>
                       <CardTitle>Answer</CardTitle>
                       <CardDescription>AI-generated response with source citations</CardDescription>
                     </CardHeader>
-                    <CardContent>
-                      <div className="bg-slate-50 rounded-lg p-4 mb-4">
-                        <p className="text-slate-700 leading-relaxed">
-                          {answer}
-                        </p>
-                      </div>
-                      {answerSources.length > 0 && (
-                        <div className="space-y-2">
-                          <h4 className="font-medium text-sm">Sources:</h4>
-                          <div className="flex flex-wrap gap-2">
-                            {answerSources.map((source, index) => (
-                              <Badge key={index} variant="outline" className="text-xs">
-                                {source}
-                              </Badge>
-                            ))}
-                          </div>
+                    <CardContent className="flex flex-col h-full">
+                      <ScrollArea className="flex-1">
+                        <div className="prose prose-slate max-w-none">
+                          <ReactMarkdown 
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              p: ({node, ...props}) => <p className="mb-3 text-gray-700 leading-relaxed whitespace-pre-wrap" {...props} />,
+                              h1: ({node, ...props}) => <h1 className="text-xl font-bold mb-3 text-gray-900 mt-4 first:mt-0" {...props} />,
+                              h2: ({node, ...props}) => <h2 className="text-lg font-bold mb-3 text-gray-900 mt-4 first:mt-0" {...props} />,
+                              h3: ({node, ...props}) => <h3 className="text-base font-bold mb-2 text-gray-900 mt-3 first:mt-0" {...props} />,
+                              h4: ({node, ...props}) => <h4 className="text-base font-semibold mb-2 text-gray-900 mt-3 first:mt-0" {...props} />,
+                              strong: ({node, ...props}) => <strong className="font-bold text-gray-900" {...props} />,
+                              em: ({node, ...props}) => <em className="italic" {...props} />,
+                              ul: ({node, ...props}) => <ul className="list-disc pl-6 mb-4 space-y-1" {...props} />,
+                              ol: ({node, ...props}) => <ol className="list-decimal pl-6 mb-4 space-y-1" {...props} />,
+                              li: ({node, ...props}) => <li className="text-gray-700" {...props} />,
+                              code: ({node, ...props}) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono" {...props} />,
+                              pre: ({node, ...props}) => <pre className="bg-gray-100 p-3 rounded mb-4 text-sm overflow-x-auto" {...props} />,
+                              blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-gray-300 pl-4 italic text-gray-600 mb-4" {...props} />
+                            }}
+                          >
+                            {answer}
+                          </ReactMarkdown>
                         </div>
-                      )}
-                      <div className="flex justify-end mt-4">
+                        {answerSources.length > 0 && (
+                          <div className="space-y-2">
+                            <h4 className="font-medium text-sm">Sources:</h4>
+                            <div className="flex flex-wrap gap-2">
+                              {answerSources.map((source, index) => (
+                                <Badge key={index} variant="outline" className="text-xs">
+                                  {source}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </ScrollArea>
+                      <div className="flex justify-end mt-4 flex-shrink-0">
                         <Button 
                           variant="outline" 
                           size="sm"
@@ -649,16 +721,84 @@ export default function RAGDocumentChatUI() {
                 )}
               </div>
 
-              {/* Context & History */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Context & History</CardTitle>
-                  <CardDescription className="text-sm">Active context and previous questions</CardDescription>
+              {/* Right Column: Answer Style & Context/History */}
+              <div className="flex flex-col space-y-4">
+                {/* Answer Style - Compact */}
+                <Card className="flex-shrink-0">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">Answer Style</CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="pt-0">
+                  <div className="space-y-2">
+                    <Textarea
+                      value={systemPrompt}
+                      onChange={(e) => setSystemPrompt(e.target.value)}
+                      placeholder="Enter formatting instructions..."
+                      className="min-h-[60px] text-xs resize-none"
+                      rows={2}
+                    />
+                    <div className="flex gap-1 flex-wrap">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSystemPrompt("Create a short brief summary at the top. Then reply your answer in Markdown.")}
+                        className="text-xs h-6 px-2"
+                      >
+                        Default
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSystemPrompt("Provide a detailed analysis with numbered sections and bullet points in Markdown format.")}
+                        className="text-xs h-6 px-2"
+                      >
+                        Detailed
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSystemPrompt("Give a concise, direct answer in plain text.")}
+                        className="text-xs h-6 px-2"
+                      >
+                        Brief
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSystemPrompt("")}
+                        className="text-xs h-6 px-2"
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Context & History - Expandable */}
+              <Card className="flex flex-col flex-1 min-h-0">
+                <CardHeader className="flex-shrink-0">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-base">Context & History ({conversationHistory.length})</CardTitle>
+                      <CardDescription className="text-sm">Active context and previous questions</CardDescription>
+                    </div>
+                    {conversationHistory.length > 0 && (
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => setConversationHistory([])}
+                        className="text-xs"
+                      >
+                        Clear History
+                      </Button>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="flex flex-col h-full">
                   {/* Active Context */}
                   {useSearchContext && searchContext && (
-                    <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex-shrink-0">
                       <h4 className="font-medium text-sm text-blue-800 mb-2">Active Search Context</h4>
                       <div className="space-y-1 text-xs text-blue-700">
                         <div>Query: "{searchContext.query}"</div>
@@ -669,20 +809,39 @@ export default function RAGDocumentChatUI() {
                     </div>
                   )}
 
-                  <ScrollArea className="h-48">
+                  <ScrollArea className="flex-1 min-h-0">
                     <div className="space-y-3 text-sm">
-                      <div className="p-2 bg-slate-50 rounded">
-                        <p className="font-medium">Q: What is machine learning?</p>
-                        <p className="text-slate-600 text-xs mt-1">2 minutes ago • Used search context</p>
-                      </div>
-                      <div className="p-2 bg-slate-50 rounded">
-                        <p className="font-medium">Q: How does data preprocessing work?</p>
-                        <p className="text-slate-600 text-xs mt-1">5 minutes ago • All documents</p>
-                      </div>
+                      {conversationHistory.length === 0 ? (
+                        <div className="text-slate-500 text-center py-4">
+                          No conversation history yet. Ask a question to get started!
+                        </div>
+                      ) : (
+                        conversationHistory.slice().reverse().map((item, index) => (
+                          <div 
+                            key={index} 
+                            className="p-2 bg-slate-50 rounded cursor-pointer transition-all duration-200 hover:bg-slate-100 hover:ring-2 hover:ring-blue-300 hover:shadow-sm"
+                            onClick={() => {
+                              setQuestion(item.question)
+                              setAnswer(item.answer)
+                              setAnswerSources(item.sources || [])
+                            }}
+                            title="Click to recall this question and answer"
+                          >
+                            <p className="font-medium">Q: {item.question}</p>
+                            <p className="text-xs text-slate-700 mt-1 line-clamp-2">A: {item.answer.substring(0, 100)}...</p>
+                            <p className="text-slate-600 text-xs mt-1">
+                              {new Date(item.timestamp).toLocaleTimeString()} • 
+                              {item.usedContext ? " Used search context" : " All documents"} • 
+                              {item.searchStrategy} strategy
+                            </p>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </ScrollArea>
                 </CardContent>
               </Card>
+              </div>
             </div>
           </TabsContent>
 

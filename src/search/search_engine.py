@@ -593,3 +593,38 @@ class SearchEngine:
         ]
         
         return self.clients.openai.generate_response(messages)
+    
+    def _generate_paragraph_answer(self, query: str, context: str, conversation_history: str = "") -> str:
+        """Generate answer optimized for paragraph-based context with optional conversation history"""
+        
+        # Build system message
+        system_content = ("You are a helpful assistant that answers questions based on provided paragraph context. "
+                         "The context contains both specific details and broader paragraph summaries. "
+                         "Use the paragraph summaries to understand the broader themes and the detailed chunks for specific facts. "
+                         "If the context doesn't contain enough information to answer the question, "
+                         "say so clearly. Always be accurate and cite the information from the context.")
+        
+        if conversation_history:
+            system_content += (" You also have access to recent conversation history to understand "
+                             "context and references like 'it', 'that', 'the previous topic', etc.")
+        
+        # Build user message
+        user_content = f"Context:\n{context}"
+        
+        if conversation_history:
+            user_content += f"\n\nRecent Conversation:\n{conversation_history}"
+        
+        user_content += f"\n\nQuestion: {query}\n\nAnswer using both paragraph context and specific details:"
+        
+        messages = [
+            {
+                "role": "system",
+                "content": system_content
+            },
+            {
+                "role": "user",
+                "content": user_content
+            }
+        ]
+        
+        return self.clients.openai.generate_response(messages)

@@ -73,6 +73,46 @@ class RAGSystem:
         """Process document with paragraph-level summaries"""
         return await self.paragraph_processor.process_document_paragraphs(filename)
     
-    def get_system_status(self) -> Dict[str, str]:
+    def get_system_status(self) -> Dict[str, any]:
         """Get system status"""
-        return self.clients.get_status()
+        client_status = self.clients.get_status()
+        
+        # Get document and collection counts
+        try:
+            collections = self.clients.chromadb.client.list_collections()
+            total_collections = len(collections)
+            
+            # Count total documents across all collections
+            total_documents = 0
+            for collection_info in collections:
+                try:
+                    collection = self.clients.chromadb.get_or_create_collection(collection_info.name)
+                    items = collection.get()
+                    # Count unique documents in this collection
+                    if 'metadatas' in items and items['metadatas']:
+                        unique_docs = set()
+                        for metadata in items['metadatas']:
+                            if isinstance(metadata, dict) and 'filename' in metadata:
+                                unique_docs.add(metadata['filename'])
+                        total_documents += len(unique_docs)
+                except Exception as e:
+                    logger.warning(f"Error counting documents in collection {collection_info.name}: {e}")
+                    
+        except Exception as e:
+            logger.warning(f"Error getting collection stats: {e}")
+            total_collections = 0
+            total_documents = 0
+        
+        # Determine overall API health
+        api_healthy = (
+            client_status.get("chromadb") == "connected" and 
+            client_status.get("openai") == "connected"
+        )
+        
+        return {
+            "api": "healthy" if api_healthy else "error",
+            "chromadb": client_status.get("chromadb", "unknown"),
+            "ollama": client_status.get("openai", "unknown"),  # Map openai to ollama for frontend compatibility
+            "documents": total_documents,
+            "collections": total_collections
+        }

@@ -112,7 +112,7 @@ class RAGSystem:
         return {
             "api": "healthy" if api_healthy else "error",
             "chromadb": client_status.get("chromadb", "unknown"),
-            "ollama": client_status.get("openai", "unknown"),  # Map openai to ollama for frontend compatibility
+            "openai": client_status.get("openai", "unknown"),
             "documents": total_documents,
             "collections": total_collections
         }

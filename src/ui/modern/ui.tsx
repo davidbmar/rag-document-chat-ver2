@@ -921,9 +921,9 @@ export default function RAGDocumentChatUI() {
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm">Ollama</span>
-                    <Badge variant={systemStatus?.ollama === "connected" ? "default" : "destructive"}>
-                      {systemStatus?.ollama || 'unknown'}
+                    <span className="text-sm">OpenAI</span>
+                    <Badge variant={systemStatus?.openai === "connected" ? "default" : "destructive"}>
+                      {systemStatus?.openai || 'unknown'}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between">

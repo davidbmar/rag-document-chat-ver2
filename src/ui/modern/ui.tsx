@@ -57,6 +57,7 @@ export default function RAGDocumentChatUI() {
   const [searchContext, setSearchContext] = useState<SearchContext | null>(null)
   const [useSearchContext, setUseSearchContext] = useState(false)
   const [searchStrategy, setSearchStrategy] = useState<'basic' | 'enhanced' | 'paragraph'>('enhanced')
+  const [topK, setTopK] = useState<number>(5)
   
   // Loading States
   const [isLoading, setIsLoading] = useState(false)
@@ -64,7 +65,8 @@ export default function RAGDocumentChatUI() {
   const [isAsking, setIsAsking] = useState(false)
   const [answer, setAnswer] = useState<string | null>(null)
   const [answerSources, setAnswerSources] = useState<string[]>([])
-  const [conversationHistory, setConversationHistory] = useState<Array<{question: string, answer: string, sources: string[], timestamp: Date, usedContext: boolean, searchStrategy: string}>>([])  
+  const [rawCitations, setRawCitations] = useState<any[]>([])
+  const [conversationHistory, setConversationHistory] = useState<Array<{question: string, answer: string, sources: string[], rawCitations?: any[], timestamp: Date, usedContext: boolean, searchStrategy: string}>>([])  
   
   // System Prompt (Answer Style)
   const [systemPrompt, setSystemPrompt] = useState<string>("Create a short brief summary at the top. Then reply your answer in Markdown.")
@@ -167,7 +169,7 @@ export default function RAGDocumentChatUI() {
     try {
       const response = await apiClient.search({ 
         query: searchQuery,
-        top_k: 10,
+        top_k: topK,
         return_chunks: true
       })
       
@@ -191,13 +193,11 @@ export default function RAGDocumentChatUI() {
     
     setIsAsking(true)
     try {
-      // Combine system prompt with user question
-      const enhancedQuestion = systemPrompt.trim() ? `${systemPrompt}\n\n${question}` : question
-      
       const request: any = {
-        question: enhancedQuestion,
-        top_k: 8,
-        search_strategy: searchStrategy
+        question: question,
+        top_k: topK,
+        search_strategy: searchStrategy,
+        system_prompt: systemPrompt.trim()
       }
       
       if (useSearchContext && searchContext?.search_id) {
@@ -216,12 +216,14 @@ export default function RAGDocumentChatUI() {
       const response = await apiClient.ask(request)
       setAnswer(response.answer)
       setAnswerSources(response.sources)
+      setRawCitations(response.raw_citations || [])
       
       // Add to conversation history
       setConversationHistory(prev => [...prev, {
         question,
         answer: response.answer,
         sources: response.sources || [],
+        rawCitations: response.raw_citations || [],
         timestamp: new Date(),
         usedContext: useSearchContext,
         searchStrategy: searchStrategy
@@ -659,6 +661,29 @@ export default function RAGDocumentChatUI() {
                         </Button>
                       </div>
                     </div>
+
+                    {/* Top-K Configuration */}
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Results to Retrieve (top_k):</label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          min="1"
+                          max="50"
+                          value={topK}
+                          onChange={(e) => setTopK(Math.max(1, Math.min(50, parseInt(e.target.value) || 5)))}
+                          className="w-20 text-sm"
+                        />
+                        <span className="text-xs text-slate-500">
+                          Higher = more context, but slower & costlier
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        • 3-5: Focused answers (recommended)
+                        • 8-12: Broad research  
+                        • 15+: Comprehensive but expensive
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
 
@@ -701,6 +726,38 @@ export default function RAGDocumentChatUI() {
                                 <Badge key={index} variant="outline" className="text-xs">
                                   {source}
                                 </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {rawCitations.length > 0 && (
+                          <div className="space-y-3 mt-4 pt-4 border-t border-slate-200">
+                            <h4 className="font-medium text-sm flex items-center gap-2">
+                              📖 Raw Citations ({rawCitations.length} excerpts)
+                            </h4>
+                            <div className="space-y-3">
+                              {rawCitations.map((citation, index) => (
+                                <div key={index} className="bg-slate-50 p-3 rounded-lg border">
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <Badge variant="secondary" className="text-xs">
+                                      {citation.collection}
+                                    </Badge>
+                                    <span className="text-xs text-slate-600">{citation.document}</span>
+                                    {citation.relevancy_percentage && (
+                                      <Badge variant="outline" className="text-xs ml-auto">
+                                        {citation.relevancy_percentage}% relevant
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <div className="text-sm text-slate-700 bg-white p-2 rounded border-l-4 border-blue-200">
+                                    {citation.text}
+                                  </div>
+                                  {citation.context && (
+                                    <div className="text-xs text-slate-500 mt-1">
+                                      Context: {citation.context}
+                                    </div>
+                                  )}
+                                </div>
                               ))}
                             </div>
                           </div>

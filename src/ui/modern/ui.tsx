@@ -30,7 +30,7 @@ import {
   Filter,
   Loader2,
   Brain,
-  FileSliders,
+  Sliders,
 } from "lucide-react"
 
 // API Client and Types
@@ -440,7 +440,7 @@ export default function RAGDocumentChatUI() {
                     </Button>
                   </div>
                   <div className="text-xs text-slate-500 mt-2">
-                    <span className="font-medium">Processing:</span> Upload creates basic chunks. Use 🧠 (summaries) and 📊 (paragraphs) buttons on documents for advanced processing.
+                    <span className="font-medium">Processing:</span> Upload creates basic chunks. Use Brain (summaries) and Sliders (paragraphs) buttons on documents for advanced processing.
                   </div>
                 </CardContent>
               </Card>
@@ -524,7 +524,7 @@ export default function RAGDocumentChatUI() {
                                 disabled={isLoading}
                                 className="text-purple-600 hover:text-purple-700"
                               >
-                                <FileSliders className="w-4 h-4" />
+                                <Sliders className="w-4 h-4" />
                               </Button>
                             )}
                             

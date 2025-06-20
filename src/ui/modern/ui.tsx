@@ -373,8 +373,8 @@ export default function RAGDocumentChatUI() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-4 mb-6">
             <TabsTrigger value="browse" className="flex items-center gap-2">
-              <Upload className="w-4 h-4" />
-              Browse
+              <FileText className="w-4 h-4" />
+              Documents
             </TabsTrigger>
             <TabsTrigger value="search" className="flex items-center gap-2">
               <Search className="w-4 h-4" />

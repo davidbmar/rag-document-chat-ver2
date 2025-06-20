@@ -391,96 +391,102 @@ export default function RAGDocumentChatUI() {
           </TabsList>
 
           {/* Browse Tab */}
-          <TabsContent value="browse" className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Upload Section */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Upload className="w-5 h-5" />
-                    Upload Documents
-                  </CardTitle>
-                  <CardDescription>Upload PDF, TXT, or image files for processing</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div 
-                    className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-slate-400 transition-colors cursor-pointer"
-                    onClick={() => document.getElementById('file-upload')?.click()}
-                    onDrop={(e) => {
-                      e.preventDefault()
-                      handleFileUpload(e.dataTransfer.files)
-                    }}
-                    onDragOver={(e) => e.preventDefault()}
+          <TabsContent value="browse" className="space-y-6 h-[calc(100vh-250px)] flex flex-col">
+            {/* Upload Section */}
+            <Card className="flex-shrink-0">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Upload className="w-5 h-5" />
+                  Upload Documents
+                </CardTitle>
+                <CardDescription>Upload PDF, TXT, or image files for processing</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div 
+                  className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center hover:border-slate-400 transition-colors cursor-pointer"
+                  onClick={() => document.getElementById('file-upload')?.click()}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    handleFileUpload(e.dataTransfer.files)
+                  }}
+                  onDragOver={(e) => e.preventDefault()}
+                >
+                  <input
+                    id="file-upload"
+                    type="file"
+                    accept=".pdf,.txt,.png,.jpg,.jpeg"
+                    onChange={(e) => handleFileUpload(e.target.files)}
+                    className="hidden"
+                  />
+                  <Upload className="w-10 h-10 text-slate-400 mx-auto mb-3" />
+                  <p className="text-slate-600 mb-1">Drag & drop files here or click to browse</p>
+                  <p className="text-sm text-slate-500">Supports PDF, TXT, PNG, JPG, JPEG (max 50MB)</p>
+                </div>
+
+                {uploadProgress.isUploading && (
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span>Uploading {uploadProgress.filename}...</span>
+                      <span>{uploadProgress.progress}%</span>
+                    </div>
+                    <Progress value={uploadProgress.progress} className="w-full" />
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <Button onClick={() => document.getElementById('file-upload')?.click()} disabled={uploadProgress.isUploading} className="flex-1">
+                    {uploadProgress.isUploading ? 'Uploading...' : 'Upload Files'}
+                  </Button>
+                </div>
+                <div className="text-xs text-slate-500">
+                  <span className="font-medium">Processing:</span> Upload creates basic chunks. Use Brain (summaries) and Sliders (paragraphs) buttons on documents for advanced processing.
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Document List - Responsive Height */}
+            <Card className="flex-1 min-h-0 flex flex-col">
+              <CardHeader className="flex-shrink-0">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="w-5 h-5" />
+                      Documents ({Object.keys(documents).length})
+                    </CardTitle>
+                    <CardDescription>Manage your uploaded documents</CardDescription>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="text-red-600 hover:text-red-700"
+                    onClick={handleClearDocuments}
                   >
-                    <input
-                      id="file-upload"
-                      type="file"
-                      accept=".pdf,.txt,.png,.jpg,.jpeg"
-                      onChange={(e) => handleFileUpload(e.target.files)}
-                      className="hidden"
-                    />
-                    <Upload className="w-12 h-12 text-slate-400 mx-auto mb-4" />
-                    <p className="text-slate-600 mb-2">Drag & drop files here or click to browse</p>
-                    <p className="text-sm text-slate-500">Supports PDF, TXT, PNG, JPG, JPEG (max 50MB)</p>
-                  </div>
-
-                  {uploadProgress.isUploading && (
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span>Uploading {uploadProgress.filename}...</span>
-                        <span>{uploadProgress.progress}%</span>
+                    <Trash2 className="w-4 h-4 mr-1" />
+                    Clear All
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="flex-1 min-h-0 flex flex-col">
+                <ScrollArea className="flex-1">
+                  <div className="space-y-3 pr-4">
+                    {documentsArray.length === 0 ? (
+                      <div className="text-center py-12 text-slate-500">
+                        <FileText className="w-12 h-12 mx-auto mb-4 text-slate-300" />
+                        <p className="text-lg font-medium mb-2">No documents uploaded</p>
+                        <p className="text-sm">Upload your first document above to get started</p>
                       </div>
-                      <Progress value={uploadProgress.progress} className="w-full" />
-                    </div>
-                  )}
-
-                  <div className="flex gap-2">
-                    <Button onClick={() => document.getElementById('file-upload')?.click()} disabled={uploadProgress.isUploading} className="flex-1">
-                      {uploadProgress.isUploading ? 'Uploading...' : 'Upload Files'}
-                    </Button>
-                  </div>
-                  <div className="text-xs text-slate-500 mt-2">
-                    <span className="font-medium">Processing:</span> Upload creates basic chunks. Use Brain (summaries) and Sliders (paragraphs) buttons on documents for advanced processing.
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Document List */}
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="flex items-center gap-2">
-                        <FileText className="w-5 h-5" />
-                        Documents ({Object.keys(documents).length})
-                      </CardTitle>
-                      <CardDescription>Manage your uploaded documents</CardDescription>
-                    </div>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="text-red-600 hover:text-red-700"
-                      onClick={handleClearDocuments}
-                    >
-                      <Trash2 className="w-4 h-4 mr-1" />
-                      Clear All
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <ScrollArea className="h-64">
-                    <div className="space-y-3">
-                      {documentsArray.map((doc, index) => (
-                        <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
-                          <div className="flex-1">
+                    ) : (
+                      documentsArray.map((doc, index) => (
+                        <div key={index} className="flex items-center justify-between p-3 border rounded-lg hover:bg-slate-50 transition-colors">
+                          <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
-                              <FileText className="w-4 h-4 text-slate-500" />
-                              <span className="font-medium text-sm">{doc.name}</span>
+                              <FileText className="w-4 h-4 text-slate-500 flex-shrink-0" />
+                              <span className="font-medium text-sm truncate">{doc.name}</span>
                               <Badge variant={
                                 doc.status === "fully_processed" ? "default" : 
                                 doc.status === "partially_processed" ? "secondary" :
                                 doc.status === "basic_processed" ? "outline" : "destructive"
-                              } className="text-xs">
+                              } className="text-xs flex-shrink-0">
                                 {doc.status === "fully_processed" ? (
                                   <CheckCircle className="w-3 h-3 mr-1" />
                                 ) : doc.status === "partially_processed" ? (
@@ -490,18 +496,18 @@ export default function RAGDocumentChatUI() {
                                 )}
                                 {doc.status.replace('_', ' ')}
                               </Badge>
-                              <Badge variant="outline" className="text-xs">
+                              <Badge variant="outline" className="text-xs flex-shrink-0">
                                 {doc.file_type}
                               </Badge>
                             </div>
                             <div className="text-xs text-slate-500 mb-1">
                               {doc.chunks} chunks • {doc.size}
                             </div>
-                            <div className="text-xs text-slate-400">
+                            <div className="text-xs text-slate-400 truncate">
                               Collections: {Object.keys(doc.collections).join(', ') || 'None'}
                             </div>
                           </div>
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1 ml-4 flex-shrink-0">
                             {/* Advanced Processing Buttons */}
                             {!doc.collections['logical_summaries'] && (
                               <Button 
@@ -551,12 +557,12 @@ export default function RAGDocumentChatUI() {
                             </Button>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                </CardContent>
-              </Card>
-            </div>
+                      ))
+                    )}
+                  </div>
+                </ScrollArea>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* Search Tab */}

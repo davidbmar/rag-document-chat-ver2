@@ -1068,85 +1068,147 @@ export default function RAGDocumentChatUI() {
                 </CardContent>
               </Card>
 
-              {/* Document Statistics */}
+              {/* Document Overview */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Database className="w-5 h-5" />
-                    Document Stats
+                    <FileText className="w-5 h-5" />
+                    Document Overview
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-3">
+                <CardContent className="space-y-4">
                   <div className="flex items-center justify-between">
                     <span className="text-sm">Total Documents</span>
-                    <Badge variant="outline">{systemStatus?.documents || 0}</Badge>
+                    <Badge variant="outline" className="text-lg px-3 py-1">{systemStatus?.documents || 0}</Badge>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">Collections</span>
-                    <Badge variant="outline">{systemStatus?.collections || 0}</Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">Total Chunks</span>
-                    <Badge variant="outline">{Object.values(documents).reduce((sum, doc) => sum + doc.total_chunks, 0)}</Badge>
-                  </div>
+                  
+                  {/* Processing Status Summary */}
+                  {(() => {
+                    const docArray = Object.values(documents)
+                    const fullyProcessed = docArray.filter(doc => doc.status === 'fully_processed').length
+                    const partiallyProcessed = docArray.filter(doc => doc.status === 'partially_processed').length
+                    const basicProcessed = docArray.filter(doc => doc.status === 'basic_processed').length
+                    const totalDocs = docArray.length
+                    const processingPercent = totalDocs > 0 ? Math.round((fullyProcessed / totalDocs) * 100) : 0
+                    
+                    return (
+                      <>
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span>Processing Complete</span>
+                            <span className="font-medium">{processingPercent}%</span>
+                          </div>
+                          <Progress value={processingPercent} className="h-2" />
+                        </div>
+                        
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          <div className="text-center p-2 bg-green-50 rounded">
+                            <div className="font-semibold text-green-700">{fullyProcessed}</div>
+                            <div className="text-green-600">Fully Ready</div>
+                          </div>
+                          <div className="text-center p-2 bg-yellow-50 rounded">
+                            <div className="font-semibold text-yellow-700">{partiallyProcessed}</div>
+                            <div className="text-yellow-600">Partial</div>
+                          </div>
+                          <div className="text-center p-2 bg-blue-50 rounded">
+                            <div className="font-semibold text-blue-700">{basicProcessed}</div>
+                            <div className="text-blue-600">Basic Only</div>
+                          </div>
+                        </div>
+                      </>
+                    )
+                  })()}
                 </CardContent>
               </Card>
 
-              {/* Performance Metrics */}
+              {/* Quick Actions */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Server className="w-5 h-5" />
-                    Performance
+                    <Activity className="w-5 h-5" />
+                    Quick Actions
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-sm">
-                      <span>Memory Usage</span>
-                      <span>68%</span>
-                    </div>
-                    <Progress value={68} className="h-2" />
+                  <div className="text-sm text-slate-600 mb-3">
+                    Improve your search results by completing document processing:
                   </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-sm">
-                      <span>CPU Usage</span>
-                      <span>23%</span>
+                  
+                  <div className="space-y-2 text-xs">
+                    <div className="flex items-center gap-2 p-2 bg-blue-50 rounded">
+                      <Brain className="w-4 h-4 text-blue-600" />
+                      <div>
+                        <div className="font-medium text-blue-800">Smart Summaries</div>
+                        <div className="text-blue-600">10:1 compression for better concept search</div>
+                      </div>
                     </div>
-                    <Progress value={23} className="h-2" />
+                    
+                    <div className="flex items-center gap-2 p-2 bg-purple-50 rounded">
+                      <Sliders className="w-4 h-4 text-purple-600" />
+                      <div>
+                        <div className="font-medium text-purple-800">Paragraph Summaries</div>
+                        <div className="text-purple-600">3:1 compression for wider context</div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">Avg Response Time</span>
-                    <Badge variant="outline">1.2s</Badge>
+                  
+                  <div className="pt-2 border-t">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="w-full text-xs"
+                      onClick={() => setActiveTab('browse')}
+                    >
+                      Go to Documents →
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Collections Detail */}
+            {/* What This Means */}
             <Card>
               <CardHeader>
-                <CardTitle>Collection Details</CardTitle>
-                <CardDescription>Detailed view of document collections and their contents</CardDescription>
+                <CardTitle className="flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5" />
+                  Understanding Processing Status
+                </CardTitle>
+                <CardDescription>What each processing level means for your search results</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="border rounded-lg p-4">
-                      <h4 className="font-medium mb-2">original_texts</h4>
-                      <p className="text-sm text-slate-600 mb-2">Raw document chunks</p>
-                      <div className="flex justify-between text-sm">
-                        <span>Items: 89</span>
-                        <span>Documents: 3</span>
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="border rounded-lg p-4 bg-green-50 border-green-200">
+                      <div className="flex items-center gap-2 mb-2">
+                        <CheckCircle className="w-4 h-4 text-green-600" />
+                        <h4 className="font-medium text-green-800">Fully Ready</h4>
                       </div>
+                      <p className="text-sm text-green-700 mb-2">
+                        Best search results with both smart summaries and paragraph context. 
+                        Optimal for complex questions and research.
+                      </p>
                     </div>
-                    <div className="border rounded-lg p-4">
-                      <h4 className="font-medium mb-2">summaries</h4>
-                      <p className="text-sm text-slate-600 mb-2">Generated summaries</p>
-                      <div className="flex justify-between text-sm">
-                        <span>Items: 46</span>
-                        <span>Documents: 2</span>
+                    
+                    <div className="border rounded-lg p-4 bg-yellow-50 border-yellow-200">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Clock className="w-4 h-4 text-yellow-600" />
+                        <h4 className="font-medium text-yellow-800">Partial Processing</h4>
                       </div>
+                      <p className="text-sm text-yellow-700 mb-2">
+                        Good search results with either summaries OR paragraphs. 
+                        Click Brain/Sliders buttons to complete processing.
+                      </p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4 bg-blue-50 border-blue-200">
+                      <div className="flex items-center gap-2 mb-2">
+                        <FileText className="w-4 h-4 text-blue-600" />
+                        <h4 className="font-medium text-blue-800">Basic Only</h4>
+                      </div>
+                      <p className="text-sm text-blue-700 mb-2">
+                        Standard search on document chunks. Works well for direct fact-finding. 
+                        Add processing for better conceptual search.
+                      </p>
                     </div>
                   </div>
                 </div>

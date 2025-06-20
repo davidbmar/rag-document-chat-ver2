@@ -14,10 +14,22 @@ class ChatRequest(BaseModel):
     top_k: int = 15
 
 
+class Citation(BaseModel):
+    """Individual citation with raw text excerpt"""
+    text: str                    # The actual text excerpt used
+    document: str               # Source document filename
+    context: Optional[str] = None   # Additional surrounding context
+    chunk_id: str               # ID of the chunk this citation came from
+    collection: str             # Which collection (documents, summaries, etc.)
+    relevancy_score: float      # Similarity score (0.0 to 1.0)
+    relevancy_percentage: int   # Human-readable percentage (0-100%)
+
+
 class ChatResponse(BaseModel):
     """Response model for chat endpoint"""
     answer: str
-    sources: List[str]
+    sources: List[str]          # Keep existing filename sources for backward compatibility
+    raw_citations: List[Citation] = []   # New field for raw text citations
     processing_time: float
 
 
@@ -124,6 +136,7 @@ class AskRequest(BaseModel):
     search_id: Optional[str] = None                # Use previous search results
     conversation_history: Optional[str] = ""
     search_strategy: Optional[str] = "enhanced"    # basic, enhanced, paragraph
+    system_prompt: Optional[str] = ""              # Custom system prompt for answer style
 
 
 class ProcessRequest(BaseModel):

@@ -597,6 +597,23 @@ for message in st.session_state.messages:
             with st.expander("📚 Sources", expanded=False):
                 for source in message["sources"]:
                     st.text(f"• {source}")
+        
+        # Show raw citations for assistant messages
+        if message["role"] == "assistant" and "raw_citations" in message and message["raw_citations"]:
+            with st.expander(f"📖 Raw Citations ({len(message['raw_citations'])} excerpts)", expanded=False):
+                for i, citation in enumerate(message["raw_citations"], 1):
+                    st.markdown(f"**Citation {i}:** {citation.get('document', 'unknown')} ({citation.get('collection', 'unknown')})")
+                    
+                    # Display the citation text in a clean format
+                    citation_text = citation.get('text', 'No text available')
+                    st.markdown(f"> {citation_text}")
+                    
+                    # Show additional context if available
+                    if citation.get('context'):
+                        st.caption(f"Context: {citation['context']}")
+                    
+                    if i < len(message["raw_citations"]):  # Don't add divider after last citation
+                        st.divider()
 
 # Chat input
 if prompt := st.chat_input("Ask a question about your documents..."):
@@ -766,7 +783,8 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": response.answer,
-                    "sources": response.sources
+                    "sources": response.sources,
+                    "raw_citations": getattr(response, 'raw_citations', [])
                 })
                 
                 # Add to conversation history for context
@@ -783,6 +801,27 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                             else:
                                 st.text(f"📄 {source}")
                 
+                # Show raw citations
+                if hasattr(response, 'raw_citations') and response.raw_citations:
+                    with st.expander(f"📖 Raw Citations ({len(response.raw_citations)} excerpts)", expanded=False):
+                        for i, citation in enumerate(response.raw_citations, 1):
+                            st.markdown(f"**Citation {i}:** {citation.document} ({citation.collection})")
+                            
+                            # Display the citation text in a clean format
+                            st.markdown(f"> {citation.text}")
+                            
+                            # Show additional context if available
+                            if citation.context:
+                                st.caption(f"Context: {citation.context}")
+                            
+                            # Add copy button for the citation text
+                            if st.button(f"📋 Copy Citation {i}", key=f"copy_citation_{i}"):
+                                st.code(citation.text)
+                                st.success("Citation copied to view!")
+                            
+                            if i < len(response.raw_citations):  # Don't add divider after last citation
+                                st.divider()
+                
                 # Show processing time
                 st.caption(f"⏱️ Response generated in {response.processing_time:.2f}s")
                 
@@ -792,7 +831,8 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": error_msg,
-                    "sources": []
+                    "sources": [],
+                    "raw_citations": []
                 })
                 
                 # Add error to conversation history too

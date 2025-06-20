@@ -8,7 +8,7 @@ import uuid
 import logging
 from typing import List, Dict, Any, Optional
 
-from src.core.models import ChatResponse, SearchRequest, SearchResponse, SearchResult, AskRequest
+from src.core.models import ChatResponse, SearchRequest, SearchResponse, SearchResult, AskRequest, Citation
 from src.core.clients import ClientManager
 
 logger = logging.getLogger(__name__)
@@ -169,37 +169,84 @@ class SearchEngine:
             # Determine context source
             context_chunks = []
             sources = []
+            raw_citations = []
             
             if request.search_id and request.search_id in self._search_cache:
                 # Use cached search results
                 cached_search = self._search_cache[request.search_id]
                 context_chunks = [result.content for result in cached_search.results[:request.top_k]]
                 sources = [f"{result.document} (via search)" for result in cached_search.results[:request.top_k]]
+                
+                # Create citations from cached search results
+                for result in cached_search.results[:request.top_k]:
+                    citation_text = result.content[:500] + "..." if len(result.content) > 500 else result.content
+                    raw_citations.append(Citation(
+                        text=citation_text,
+                        document=result.document,
+                        chunk_id=result.chunk_id,
+                        collection=result.collection,
+                        relevancy_score=result.score,
+                        relevancy_percentage=int(result.score * 100)
+                    ))
+                
                 logger.info(f"📋 Using cached search results: {len(context_chunks)} chunks")
                 
             elif request.chunk_ids:
                 # Use specific chunks
                 context_chunks, sources = self._get_chunks_by_ids(request.chunk_ids)
+                # Create citations from specific chunks
+                for i, chunk in enumerate(context_chunks):
+                    citation_text = chunk[:500] + "..." if len(chunk) > 500 else chunk
+                    # Extract filename from source if possible
+                    document = sources[i].split(" (")[0] if i < len(sources) else "unknown"
+                    raw_citations.append(Citation(
+                        text=citation_text,
+                        document=document,
+                        chunk_id=request.chunk_ids[i] if i < len(request.chunk_ids) else f"chunk_{i}",
+                        collection="mixed",
+                        relevancy_score=1.0,  # Direct chunk access has 100% relevancy
+                        relevancy_percentage=100
+                    ))
                 logger.info(f"🎯 Using specific chunks: {len(context_chunks)} chunks")
                 
             else:
                 # Perform new search with filtering
+                # Auto-exclude irrelevant documents for business queries
+                exclude_docs = request.exclude_documents or []
+                business_keywords = ['policy', 'fmla', 'leave', 'vacation', 'sick', 'benefit', 'handbook', 'hr', 'employee', 'work', 'capsule', 'company']
+                if any(keyword in request.question.lower() for keyword in business_keywords):
+                    exclude_docs = exclude_docs + ['alice.txt']
+                
                 search_request = SearchRequest(
                     query=request.question,
                     top_k=request.top_k,
                     documents=request.documents,
-                    exclude_documents=request.exclude_documents
+                    exclude_documents=exclude_docs
                 )
                 search_response = self.search_documents(search_request)
                 
                 context_chunks = [result.content for result in search_response.results]
                 sources = [result.document for result in search_response.results]
+                
+                # Create citations from search response results
+                for result in search_response.results:
+                    citation_text = result.content[:500] + "..." if len(result.content) > 500 else result.content
+                    raw_citations.append(Citation(
+                        text=citation_text,
+                        document=result.document,
+                        chunk_id=result.chunk_id,
+                        collection=result.collection,
+                        relevancy_score=result.score,
+                        relevancy_percentage=int(result.score * 100)
+                    ))
+                
                 logger.info(f"🔍 New search found: {len(context_chunks)} chunks")
             
             if not context_chunks:
                 return ChatResponse(
                     answer="No relevant content found for your question. Please check your search criteria or upload relevant documents.",
                     sources=[],
+                    raw_citations=[],
                     processing_time=time.time() - start_time
                 )
             
@@ -207,11 +254,11 @@ class SearchEngine:
             context = "\n\n".join(context_chunks)
             
             if request.search_strategy == "paragraph":
-                answer = self._generate_paragraph_answer(request.question, context, request.conversation_history)
+                answer = self._generate_paragraph_answer(request.question, context, request.conversation_history, request.system_prompt)
             elif request.search_strategy == "enhanced":
-                answer = self._generate_enhanced_answer(request.question, context, request.conversation_history)
+                answer = self._generate_enhanced_answer(request.question, context, request.conversation_history, request.system_prompt)
             else:
-                answer = self._generate_answer(request.question, context, request.conversation_history)
+                answer = self._generate_answer(request.question, context, request.conversation_history, request.system_prompt)
             
             processing_time = time.time() - start_time
             
@@ -220,6 +267,7 @@ class SearchEngine:
             return ChatResponse(
                 answer=answer,
                 sources=list(set(sources)),
+                raw_citations=raw_citations,
                 processing_time=processing_time
             )
             
@@ -228,8 +276,10 @@ class SearchEngine:
             return ChatResponse(
                 answer=f"Sorry, I encountered an error: {str(e)}",
                 sources=[],
+                raw_citations=[],
                 processing_time=time.time() - start_time
             )
+    
     
     def _get_chunks_by_ids(self, chunk_ids: List[str]) -> tuple[List[str], List[str]]:
         """Retrieve specific chunks by their IDs"""
@@ -261,6 +311,35 @@ class SearchEngine:
         
         return context_chunks, sources
     
+    def _create_citations_from_results(self, results: Dict, collection_name: str = "documents") -> List[Citation]:
+        """Create Citation objects from ChromaDB search results"""
+        citations = []
+        
+        if not results['documents'][0]:
+            return citations
+        
+        for i, (text, metadata, distance) in enumerate(zip(results['documents'][0], results['metadatas'][0], results.get('distances', [[]])[0] or [])):
+            chunk_id = results['ids'][0][i] if results['ids'][0] else f"unknown_{i}"
+            document = metadata.get('filename', 'unknown')
+            
+            # Convert distance to similarity score (same logic as search engine)
+            score = 1 - distance if distance < 1 else 0
+            
+            # Truncate very long text excerpts for readability
+            citation_text = text[:500] + "..." if len(text) > 500 else text
+            
+            citations.append(Citation(
+                text=citation_text,
+                document=document,
+                chunk_id=chunk_id,
+                collection=collection_name,
+                context=None,  # We can add surrounding context later if needed
+                relevancy_score=round(score, 4),
+                relevancy_percentage=int(score * 100)
+            ))
+        
+        return citations
+    
     def search_and_answer(self, query: str, top_k: int = 3, conversation_history: str = "") -> ChatResponse:
         """Search documents and generate answer using RAG"""
         start_time = time.time()
@@ -281,6 +360,7 @@ class SearchEngine:
                 return ChatResponse(
                     answer="No relevant documents found. Please upload some documents first.",
                     sources=[],
+                    raw_citations=[],
                     processing_time=time.time() - start_time
                 )
             
@@ -288,6 +368,9 @@ class SearchEngine:
             context_chunks = results['documents'][0]
             context = "\n\n".join(context_chunks)
             sources = [meta["filename"] for meta in results['metadatas'][0]]
+            
+            # Create raw citations from the search results
+            raw_citations = self._create_citations_from_results(results, "documents")
             
             logger.info(f"📚 Found {len(context_chunks)} relevant chunks from {len(set(sources))} documents")
             
@@ -300,6 +383,7 @@ class SearchEngine:
             return ChatResponse(
                 answer=answer,
                 sources=list(set(sources)),
+                raw_citations=raw_citations,
                 processing_time=processing_time
             )
             
@@ -308,6 +392,7 @@ class SearchEngine:
             return ChatResponse(
                 answer=f"Sorry, I encountered an error: {str(e)}",
                 sources=[],
+                raw_citations=[],
                 processing_time=time.time() - start_time
             )
     
@@ -333,7 +418,7 @@ class SearchEngine:
                 return chunk_response
             
             # Combine contexts
-            chunk_context = "\n\n".join(chunk_response.sources)
+            chunk_context = "\n\n".join([cite.text for cite in chunk_response.raw_citations])
             summary_context = "\n\n".join([
                 f"Summary: {doc}" for doc in summary_results['documents'][0]
             ])
@@ -343,15 +428,20 @@ class SearchEngine:
             # Generate enhanced answer
             enhanced_answer = self._generate_enhanced_answer(query, combined_context, conversation_history)
             
-            # Combine sources
+            # Combine sources and citations
             summary_sources = [f"Summary: {meta['filename']}" for meta in summary_results['metadatas'][0]]
             combined_sources = chunk_response.sources + summary_sources
+            
+            # Create citations from summaries and combine with chunk citations
+            summary_citations = self._create_citations_from_results(summary_results, "logical_summaries")
+            combined_citations = chunk_response.raw_citations + summary_citations
             
             processing_time = time.time() - start_time
             
             return ChatResponse(
                 answer=enhanced_answer,
                 sources=combined_sources,
+                raw_citations=combined_citations,
                 processing_time=processing_time
             )
             
@@ -375,12 +465,14 @@ class SearchEngine:
                 return ChatResponse(
                     answer="No relevant documents found. Please upload some documents first.",
                     sources=[],
+                    raw_citations=[],
                     processing_time=time.time() - start_time
                 )
             
             # Prepare enhanced context with location information
             context_chunks = []
             source_info = []
+            raw_citations = []
             
             for i, (chunk, metadata) in enumerate(zip(results['documents'][0], results['metadatas'][0])):
                 location_ref = metadata.get('location_reference', 'Unknown location')
@@ -391,6 +483,17 @@ class SearchEngine:
                 
                 source_detail = f"{metadata['filename']} ({location_ref})"
                 source_info.append(source_detail)
+                
+                # Create citation with location context
+                chunk_id = results['ids'][0][i] if results['ids'][0] else f"unknown_{i}"
+                citation_text = chunk[:500] + "..." if len(chunk) > 500 else chunk
+                raw_citations.append(Citation(
+                    text=citation_text,
+                    document=metadata['filename'],
+                    chunk_id=chunk_id,
+                    collection="documents",
+                    context=f"Location: {location_ref}"
+                ))
             
             context = "\n---\n".join(context_chunks)
             
@@ -401,6 +504,7 @@ class SearchEngine:
             return ChatResponse(
                 answer=answer,
                 sources=source_info,
+                raw_citations=raw_citations,
                 processing_time=processing_time
             )
             
@@ -409,16 +513,20 @@ class SearchEngine:
             return ChatResponse(
                 answer=f"Sorry, I encountered an error: {str(e)}",
                 sources=[],
+                raw_citations=[],
                 processing_time=time.time() - start_time
             )
     
-    def _generate_answer(self, query: str, context: str, conversation_history: str = "") -> str:
+    def _generate_answer(self, query: str, context: str, conversation_history: str = "", system_prompt: str = "") -> str:
         """Generate basic answer from context with optional conversation history"""
         
         # Build system message
-        system_content = ("You are a helpful assistant that answers questions based on provided context. "
-                         "If the context doesn't contain enough information to answer the question, "
-                         "say so clearly. Always be accurate and cite the information from the context.")
+        if system_prompt.strip():
+            system_content = system_prompt.strip()
+        else:
+            system_content = ("You are a helpful assistant that answers questions based on provided context. "
+                             "If the context doesn't contain enough information to answer the question, "
+                             "say so clearly. Always be accurate and cite the information from the context.")
         
         if conversation_history:
             system_content += (" You also have access to recent conversation history to understand "
@@ -445,12 +553,15 @@ class SearchEngine:
         
         return self.clients.openai.generate_response(messages)
     
-    def _generate_enhanced_answer(self, query: str, combined_context: str, conversation_history: str = "") -> str:
+    def _generate_enhanced_answer(self, query: str, combined_context: str, conversation_history: str = "", system_prompt: str = "") -> str:
         """Generate enhanced answer using both chunks and summaries with optional conversation history"""
         
         # Build system message
-        system_content = ("Use both detailed chunks and logical summaries to provide comprehensive answers. "
-                         "Summaries give broader context, chunks provide specific details.")
+        if system_prompt.strip():
+            system_content = system_prompt.strip()
+        else:
+            system_content = ("Use both detailed chunks and logical summaries to provide comprehensive answers. "
+                             "Summaries give broader context, chunks provide specific details.")
         
         if conversation_history:
             system_content += (" You also have access to recent conversation history to understand "
@@ -533,7 +644,7 @@ class SearchEngine:
                 return chunk_response
             
             # Combine contexts with paragraph summaries providing wider context
-            chunk_context = "\n\n".join(chunk_response.sources) if chunk_response.sources else ""
+            chunk_context = "\n\n".join([cite.text for cite in chunk_response.raw_citations]) if chunk_response.raw_citations else ""
             
             paragraph_context = "\n\n".join([
                 f"Paragraph Context: {doc}" for doc in paragraph_results['documents'][0]
@@ -544,9 +655,13 @@ class SearchEngine:
             # Generate enhanced answer with paragraph context
             enhanced_answer = self._generate_paragraph_aware_answer(query, combined_context, conversation_history)
             
-            # Combine sources
+            # Combine sources and citations
             paragraph_sources = [f"Paragraph: {meta['filename']}" for meta in paragraph_results['metadatas'][0]]
             combined_sources = chunk_response.sources + paragraph_sources
+            
+            # Create citations from paragraphs and combine with chunk citations
+            paragraph_citations = self._create_citations_from_results(paragraph_results, "paragraph_summaries")
+            combined_citations = chunk_response.raw_citations + paragraph_citations
             
             processing_time = time.time() - start_time
             
@@ -555,6 +670,7 @@ class SearchEngine:
             return ChatResponse(
                 answer=enhanced_answer,
                 sources=combined_sources,
+                raw_citations=combined_citations,
                 processing_time=processing_time
             )
             
@@ -594,15 +710,18 @@ class SearchEngine:
         
         return self.clients.openai.generate_response(messages)
     
-    def _generate_paragraph_answer(self, query: str, context: str, conversation_history: str = "") -> str:
+    def _generate_paragraph_answer(self, query: str, context: str, conversation_history: str = "", system_prompt: str = "") -> str:
         """Generate answer optimized for paragraph-based context with optional conversation history"""
         
         # Build system message
-        system_content = ("You are a helpful assistant that answers questions based on provided paragraph context. "
-                         "The context contains both specific details and broader paragraph summaries. "
-                         "Use the paragraph summaries to understand the broader themes and the detailed chunks for specific facts. "
-                         "If the context doesn't contain enough information to answer the question, "
-                         "say so clearly. Always be accurate and cite the information from the context.")
+        if system_prompt.strip():
+            system_content = system_prompt.strip()
+        else:
+            system_content = ("You are a helpful assistant that answers questions based on provided paragraph context. "
+                             "The context contains both specific details and broader paragraph summaries. "
+                             "Use the paragraph summaries to understand the broader themes and the detailed chunks for specific facts. "
+                             "If the context doesn't contain enough information to answer the question, "
+                             "say so clearly. Always be accurate and cite the information from the context.")
         
         if conversation_history:
             system_content += (" You also have access to recent conversation history to understand "

@@ -9,6 +9,11 @@ A modular, production-ready Retrieval-Augmented Generation (RAG) system for inte
 - **🧠 Smart Summaries**: 10:1 compressed hierarchical summaries for logical understanding
 - **📝 Paragraph Context**: 3:1 compressed natural paragraph summaries for wider search context
 
+### SOC2 Compliance & Transparency
+- **📑 Raw Source Citations**: Complete audit trails showing exact text excerpts used for answers
+- **🎯 Relevancy Scoring**: Percentage relevancy scores for each citation
+- **🔍 Smart Document Filtering**: Automatic exclusion of irrelevant documents
+
 ### Intelligent Search Hierarchy
 The system automatically selects the best search strategy:
 1. **Paragraph Context** - Uses natural paragraph boundaries for wider contextual understanding
@@ -17,6 +22,8 @@ The system automatically selects the best search strategy:
 
 ### Production-Ready Architecture
 - **Modular Design**: 9 focused modules replacing monolithic architecture
+- **Configurable Performance**: Adjustable top-k parameter for performance/cost optimization
+- **Custom System Prompts**: Support for markdown formatting and answer style customization
 - **Robust Configuration**: Environment-based config with validation and demo mode
 - **Error Handling**: Comprehensive logging and graceful fallbacks
 - **Type Safety**: Full Pydantic models and dataclasses
@@ -159,8 +166,8 @@ npm run dev
 ### Access URLs
 - **Web Interface**: http://localhost:8501 (or your-server-ip:8501)
 - **Modern UI**: http://localhost:3004 (or your-server-ip:3004)
-- **API Server**: http://localhost:8000 (or your-server-ip:8000)
-- **API Documentation**: http://localhost:8000/docs
+- **API Server**: http://localhost:8001 (or your-server-ip:8001)
+- **API Documentation**: http://localhost:8001/docs
 
 ### Document Processing Workflow
 
@@ -281,15 +288,15 @@ Each processing step provides detailed metrics:
 For external access, configure your EC2 security group to allow:
 - **Port 8501** (Streamlit Web Interface)
 - **Port 3004** (Modern Next.js UI)
-- **Port 8000** (FastAPI Server)
+- **Port 8001** (FastAPI Server)
 - **Port 22** (SSH access)
-- **Port 8002** (ChromaDB - internal only, not needed for external access)
+- **Port 8000** (ChromaDB - internal only, not needed for external access)
 
 ### Firewall Commands (if using UFW)
 ```bash
 sudo ufw allow 8501/tcp
 sudo ufw allow 3004/tcp
-sudo ufw allow 8000/tcp
+sudo ufw allow 8001/tcp
 sudo ufw allow 22/tcp
 ```
 

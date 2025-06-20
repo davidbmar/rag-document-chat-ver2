@@ -29,6 +29,8 @@ import {
   Copy,
   Filter,
   Loader2,
+  Brain,
+  FileSliders,
 } from "lucide-react"
 
 // API Client and Types
@@ -266,6 +268,46 @@ export default function RAGDocumentChatUI() {
     }
   }
 
+  const handleProcessSummaries = async (filename: string) => {
+    if (!confirm(`Generate smart summaries for "${filename}"? This will create 10:1 compressed logical summaries for better conceptual search.`)) return
+    
+    setIsLoading(true)
+    try {
+      const response = await apiClient.processSummaries(filename)
+      console.log('Summaries processing result:', response)
+      
+      // Reload documents to see updated status
+      await loadDocuments()
+      await loadSystemStatus()
+      
+      setError(null)
+    } catch (err) {
+      setError(formatErrorForUser(err))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleProcessParagraphs = async (filename: string) => {
+    if (!confirm(`Generate paragraph summaries for "${filename}"? This will create 3:1 compressed paragraph summaries for wider contextual search.`)) return
+    
+    setIsLoading(true)
+    try {
+      const response = await apiClient.processParagraphs(filename)
+      console.log('Paragraphs processing result:', response)
+      
+      // Reload documents to see updated status
+      await loadDocuments()
+      await loadSystemStatus()
+      
+      setError(null)
+    } catch (err) {
+      setError(formatErrorForUser(err))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const handleClearDocuments = async () => {
     if (!confirm('Are you sure you want to clear all documents?')) return
     
@@ -396,9 +438,9 @@ export default function RAGDocumentChatUI() {
                     <Button onClick={() => document.getElementById('file-upload')?.click()} disabled={uploadProgress.isUploading} className="flex-1">
                       {uploadProgress.isUploading ? 'Uploading...' : 'Upload Files'}
                     </Button>
-                    <Button variant="outline" disabled={uploadProgress.isUploading}>
-                      Advanced Processing
-                    </Button>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-2">
+                    <span className="font-medium">Processing:</span> Upload creates basic chunks. Use 🧠 (summaries) and 📊 (paragraphs) buttons on documents for advanced processing.
                   </div>
                 </CardContent>
               </Card>
@@ -460,6 +502,32 @@ export default function RAGDocumentChatUI() {
                             </div>
                           </div>
                           <div className="flex items-center gap-1">
+                            {/* Advanced Processing Buttons */}
+                            {!doc.collections['logical_summaries'] && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                title="Generate Smart Summaries (10:1 compression)"
+                                onClick={() => handleProcessSummaries(doc.name)}
+                                disabled={isLoading}
+                                className="text-blue-600 hover:text-blue-700"
+                              >
+                                <Brain className="w-4 h-4" />
+                              </Button>
+                            )}
+                            {!doc.collections['paragraph_summaries'] && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                title="Generate Paragraph Summaries (3:1 compression)"
+                                onClick={() => handleProcessParagraphs(doc.name)}
+                                disabled={isLoading}
+                                className="text-purple-600 hover:text-purple-700"
+                              >
+                                <FileSliders className="w-4 h-4" />
+                              </Button>
+                            )}
+                            
                             <Button 
                               variant="ghost" 
                               size="sm" 

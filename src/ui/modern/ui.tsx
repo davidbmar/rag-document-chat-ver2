@@ -238,6 +238,34 @@ export default function RAGDocumentChatUI() {
     }
   }
   
+  const handleDeleteDocument = async (filename: string) => {
+    if (!confirm(`Are you sure you want to delete "${filename}"? This will remove it from all collections and cannot be undone.`)) return
+    
+    setIsLoading(true)
+    try {
+      const response = await apiClient.deleteDocument(filename)
+      // Remove from local state
+      const newDocuments = { ...documents }
+      delete newDocuments[filename]
+      setDocuments(newDocuments)
+      
+      // Clear any search results that might reference this document
+      setSearchResults([])
+      setSearchContext(null)
+      
+      // Reload system status to get updated counts
+      await loadSystemStatus()
+      
+      // Show success message
+      setError(null)
+      console.log(response.message)
+    } catch (err) {
+      setError(formatErrorForUser(err))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const handleClearDocuments = async () => {
     if (!confirm('Are you sure you want to clear all documents?')) return
     
@@ -263,7 +291,11 @@ export default function RAGDocumentChatUI() {
     name: filename,
     chunks: info.total_chunks,
     status: info.status,
-    size: 'N/A' // Backend doesn't provide size currently
+    size: info.size || 'Unknown',
+    upload_date: info.upload_date || 'Unknown',
+    file_type: info.file_type || 'Unknown',
+    processing_stages: info.processing_stages || [],
+    collections: info.collections || {}
   }))
 
   return (
@@ -402,24 +434,51 @@ export default function RAGDocumentChatUI() {
                             <div className="flex items-center gap-2 mb-1">
                               <FileText className="w-4 h-4 text-slate-500" />
                               <span className="font-medium text-sm">{doc.name}</span>
-                              <Badge variant={doc.status === "processed" ? "default" : "secondary"} className="text-xs">
-                                {doc.status === "processed" ? (
+                              <Badge variant={
+                                doc.status === "fully_processed" ? "default" : 
+                                doc.status === "partially_processed" ? "secondary" :
+                                doc.status === "basic_processed" ? "outline" : "destructive"
+                              } className="text-xs">
+                                {doc.status === "fully_processed" ? (
                                   <CheckCircle className="w-3 h-3 mr-1" />
-                                ) : (
+                                ) : doc.status === "partially_processed" ? (
                                   <Clock className="w-3 h-3 mr-1" />
+                                ) : (
+                                  <AlertCircle className="w-3 h-3 mr-1" />
                                 )}
-                                {doc.status}
+                                {doc.status.replace('_', ' ')}
+                              </Badge>
+                              <Badge variant="outline" className="text-xs">
+                                {doc.file_type}
                               </Badge>
                             </div>
-                            <div className="text-xs text-slate-500">
+                            <div className="text-xs text-slate-500 mb-1">
                               {doc.chunks} chunks • {doc.size}
+                            </div>
+                            <div className="text-xs text-slate-400">
+                              Collections: {Object.keys(doc.collections).join(', ') || 'None'}
                             </div>
                           </div>
                           <div className="flex items-center gap-1">
-                            <Button variant="ghost" size="sm">
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              title="View Details"
+                              onClick={() => {
+                                // TODO: Implement view details modal
+                                console.log('View details for:', doc.name)
+                              }}
+                            >
                               <Download className="w-4 h-4" />
                             </Button>
-                            <Button variant="ghost" size="sm" className="text-red-600">
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="text-red-600 hover:text-red-700"
+                              title="Delete Document"
+                              onClick={() => handleDeleteDocument(doc.name)}
+                              disabled={isLoading}
+                            >
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </div>

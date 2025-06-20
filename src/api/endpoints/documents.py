@@ -142,8 +142,10 @@ async def process_paragraphs(filename: str):
 
 @router.get("/documents")
 async def list_documents():
-    """List all processed documents"""
+    """List all processed documents with enhanced metadata"""
     from src.api.app import rag_system
+    import os
+    from datetime import datetime
     
     try:
         # Get document inventory from ChromaDB
@@ -169,16 +171,40 @@ async def list_documents():
                     'count': count
                 })
                 
-                # Track documents
+                # Track documents with enhanced metadata
                 if 'metadatas' in items and items['metadatas']:
-                    for metadata in items['metadatas']:
+                    for i, metadata in enumerate(items['metadatas']):
                         if isinstance(metadata, dict) and 'filename' in metadata:
                             filename = metadata['filename']
                             if filename not in status_data['documents']:
+                                # Initialize document entry with enhanced metadata
                                 status_data['documents'][filename] = {
                                     'collections': {},
-                                    'total_chunks': 0
+                                    'total_chunks': 0,
+                                    'status': 'processed',  # Default status
+                                    'size': 'Unknown',
+                                    'upload_date': 'Unknown',
+                                    'processing_stages': [],
+                                    'file_type': filename.split('.')[-1].upper() if '.' in filename else 'Unknown'
                                 }
+                                
+                                # Try to get additional metadata from first occurrence
+                                if collection_name == 'original_texts':
+                                    # Get more detailed info from original_texts collection
+                                    first_metadata = metadata
+                                    if 'upload_date' in first_metadata:
+                                        status_data['documents'][filename]['upload_date'] = first_metadata['upload_date']
+                                    if 'file_size' in first_metadata:
+                                        size_bytes = first_metadata['file_size']
+                                        # Convert bytes to human readable
+                                        if size_bytes < 1024:
+                                            status_data['documents'][filename]['size'] = f"{size_bytes} B"
+                                        elif size_bytes < 1024**2:
+                                            status_data['documents'][filename]['size'] = f"{size_bytes/1024:.1f} KB"
+                                        elif size_bytes < 1024**3:
+                                            status_data['documents'][filename]['size'] = f"{size_bytes/(1024**2):.1f} MB"
+                                        else:
+                                            status_data['documents'][filename]['size'] = f"{size_bytes/(1024**3):.1f} GB"
                             
                             if collection_name not in status_data['documents'][filename]['collections']:
                                 status_data['documents'][filename]['collections'][collection_name] = 0
@@ -186,13 +212,179 @@ async def list_documents():
                             status_data['documents'][filename]['collections'][collection_name] += 1
                             status_data['documents'][filename]['total_chunks'] += 1
                             
+                            # Track processing stages
+                            if collection_name not in status_data['documents'][filename]['processing_stages']:
+                                status_data['documents'][filename]['processing_stages'].append(collection_name)
+                            
             except Exception as e:
                 logger.warning(f"Error accessing collection {collection_name}: {e}")
+        
+        # Determine processing completeness for each document
+        for filename, doc_info in status_data['documents'].items():
+            stages = doc_info['processing_stages']
+            if 'documents' in stages and 'logical_summaries' in stages and 'paragraph_summaries' in stages:
+                doc_info['status'] = 'fully_processed'
+            elif 'documents' in stages and ('logical_summaries' in stages or 'paragraph_summaries' in stages):
+                doc_info['status'] = 'partially_processed'
+            elif 'documents' in stages:
+                doc_info['status'] = 'basic_processed'
+            else:
+                doc_info['status'] = 'incomplete'
         
         return status_data
         
     except Exception as e:
         logger.error(f"List documents error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/documents/{filename}")
+async def get_document_details(filename: str):
+    """Get detailed information about a specific document"""
+    from src.api.app import rag_system
+    
+    try:
+        logger.info(f"📄 Getting details for document: {filename}")
+        
+        document_details = {
+            'filename': filename,
+            'collections': {},
+            'total_chunks': 0,
+            'processing_stages': [],
+            'chunks_by_collection': {},
+            'sample_content': {},
+            'status': 'not_found'
+        }
+        
+        # Check all collections for this document
+        collections = rag_system.clients.chromadb.client.list_collections()
+        
+        for collection_info in collections:
+            collection_name = collection_info.name
+            try:
+                collection = rag_system.clients.chromadb.get_or_create_collection(collection_name)
+                
+                # Get items for this specific document
+                items = collection.get(
+                    where={"filename": filename},
+                    limit=5  # Get first 5 chunks for preview
+                )
+                
+                if items and items.get('ids'):
+                    chunk_count = len(items['ids'])
+                    document_details['collections'][collection_name] = chunk_count
+                    document_details['total_chunks'] += chunk_count
+                    document_details['processing_stages'].append(collection_name)
+                    
+                    # Store sample content from first chunk
+                    if items.get('documents') and len(items['documents']) > 0:
+                        sample_text = items['documents'][0]
+                        # Truncate long content
+                        if len(sample_text) > 300:
+                            sample_text = sample_text[:300] + "..."
+                        document_details['sample_content'][collection_name] = sample_text
+                    
+                    # Get detailed metadata from first chunk
+                    if items.get('metadatas') and len(items['metadatas']) > 0:
+                        metadata = items['metadatas'][0]
+                        if collection_name == 'original_texts' and isinstance(metadata, dict):
+                            document_details['metadata'] = metadata
+                            
+            except Exception as e:
+                logger.warning(f"Error getting details from collection {collection_name}: {e}")
+        
+        if document_details['total_chunks'] > 0:
+            document_details['status'] = 'found'
+            
+            # Determine processing completeness
+            stages = document_details['processing_stages']
+            if 'documents' in stages and 'logical_summaries' in stages and 'paragraph_summaries' in stages:
+                document_details['processing_status'] = 'fully_processed'
+            elif 'documents' in stages and ('logical_summaries' in stages or 'paragraph_summaries' in stages):
+                document_details['processing_status'] = 'partially_processed'
+            elif 'documents' in stages:
+                document_details['processing_status'] = 'basic_processed'
+            else:
+                document_details['processing_status'] = 'incomplete'
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Document '{filename}' not found in any collection"
+            )
+        
+        return document_details
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get document details error for {filename}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/documents/{filename}")
+async def delete_document(filename: str):
+    """Delete a specific document from all collections"""
+    from src.api.app import rag_system
+    
+    try:
+        logger.info(f"🗑️ Deleting document: {filename}")
+        
+        # Track deletion results
+        deletion_results = {
+            'filename': filename,
+            'collections_affected': [],
+            'total_chunks_deleted': 0,
+            'status': 'success'
+        }
+        
+        # Get all collections
+        collections = rag_system.clients.chromadb.client.list_collections()
+        
+        for collection_info in collections:
+            collection_name = collection_info.name
+            try:
+                collection = rag_system.clients.chromadb.get_or_create_collection(collection_name)
+                
+                # Find items for this filename
+                items = collection.get(
+                    where={"filename": filename}
+                )
+                
+                if items and items.get('ids'):
+                    chunk_count = len(items['ids'])
+                    # Delete all chunks for this document
+                    collection.delete(ids=items['ids'])
+                    
+                    deletion_results['collections_affected'].append({
+                        'collection': collection_name,
+                        'chunks_deleted': chunk_count
+                    })
+                    deletion_results['total_chunks_deleted'] += chunk_count
+                    
+                    logger.info(f"  📦 Deleted {chunk_count} chunks from {collection_name}")
+                    
+            except Exception as e:
+                logger.warning(f"Error deleting from collection {collection_name}: {e}")
+                deletion_results['status'] = 'partial_success'
+        
+        if deletion_results['total_chunks_deleted'] == 0:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Document '{filename}' not found in any collection"
+            )
+        
+        logger.info(f"✅ Deleted {deletion_results['total_chunks_deleted']} chunks from {len(deletion_results['collections_affected'])} collections")
+        
+        return {
+            'status': deletion_results['status'],
+            'message': f"Successfully deleted '{filename}' ({deletion_results['total_chunks_deleted']} chunks from {len(deletion_results['collections_affected'])} collections)",
+            'deletion_results': deletion_results
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete document error for {filename}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

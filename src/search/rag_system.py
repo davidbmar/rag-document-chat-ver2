@@ -82,21 +82,21 @@ class RAGSystem:
             collections = self.clients.chromadb.client.list_collections()
             total_collections = len(collections)
             
-            # Count total documents across all collections
-            total_documents = 0
+            # Count unique documents across ALL collections
+            all_unique_docs = set()
             for collection_info in collections:
                 try:
                     collection = self.clients.chromadb.get_or_create_collection(collection_info.name)
                     items = collection.get()
-                    # Count unique documents in this collection
+                    # Add unique documents from this collection to global set
                     if 'metadatas' in items and items['metadatas']:
-                        unique_docs = set()
                         for metadata in items['metadatas']:
                             if isinstance(metadata, dict) and 'filename' in metadata:
-                                unique_docs.add(metadata['filename'])
-                        total_documents += len(unique_docs)
+                                all_unique_docs.add(metadata['filename'])
                 except Exception as e:
                     logger.warning(f"Error counting documents in collection {collection_info.name}: {e}")
+            
+            total_documents = len(all_unique_docs)
                     
         except Exception as e:
             logger.warning(f"Error getting collection stats: {e}")
